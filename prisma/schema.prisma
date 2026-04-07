@@ -1,0 +1,503 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+
+  @@index([shop])
+  @@index([expires])
+}
+
+model ReturnRequest {
+  id                      String                  @id @default(cuid())
+  shopifyOrderId          String
+  shopifyOrderName        String
+  shopifyReturnId         String?
+  customerEmail           String
+  customerName            String
+  shop                    String
+  status                  ReturnStatus            @default(SUBMITTED)
+  resolutionType          ResolutionType?
+  returnWindow            Int?
+  marketId                String?
+  windowOverride          Int?
+  requireManualApproval   Boolean  @default(false)
+  requiresShoppingEligibility Boolean @default(false)
+  disclaimerAcceptedAt    DateTime?
+  notes                   String?
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  closedAt                DateTime?
+  items                   ReturnItem[]
+  comments                ReturnComment[]
+  timeline                ReturnTimeline[]
+  replacementInstruction  ReplacementInstruction?
+  shippingLabel           ReturnShippingLabel?
+  policyEvaluations       PolicyEvaluation[]
+
+  @@index([shop, status])
+  @@index([shop, customerEmail])
+  @@index([shopifyOrderId])
+  @@index([shopifyReturnId])
+  @@index([createdAt])
+  @@index([shopifyOrderName])
+  @@index([customerEmail])
+}
+
+model ReturnItem {
+  id                  String            @id @default(cuid())
+  returnRequestId     String
+  returnRequest       ReturnRequest     @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  shopifyLineItemId   String
+  shopifyVariantId    String?
+  productTitle        String
+  variantTitle        String?
+  sku                 String?
+  imageUrl            String?
+  price               String?
+  quantity            Int
+  returnReason        String
+  compositeCode       String?           // RET-<code> or REP-<code> (resolution prefix + reason code)
+  customerNote        String?
+  serialNumber        String?           // Serial number (when serial tracking enabled)
+  sapLineId           String?           // ERP sales order line ID (when serial tracking enabled)
+  attachments         ReturnAttachment[]
+
+  @@unique([returnRequestId, serialNumber])
+  @@index([returnRequestId])
+}
+
+model ReturnAttachment {
+  id            String      @id @default(cuid())
+  returnItemId  String
+  returnItem    ReturnItem  @relation(fields: [returnItemId], references: [id], onDelete: Cascade)
+  url           String
+  filename      String
+  mimeType      String?
+  size          Int?
+  createdAt     DateTime    @default(now())
+
+  @@index([returnItemId])
+}
+
+model ReturnComment {
+  id              String        @id @default(cuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  author          String
+  authorType      AuthorType
+  content         String
+  isInternal      Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+
+  @@index([returnRequestId])
+}
+
+model ReturnTimeline {
+  id              String        @id @default(cuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  event           String
+  actor           String
+  actorType       AuthorType
+  details         Json?
+  createdAt       DateTime      @default(now())
+
+  @@index([returnRequestId])
+  @@index([createdAt])
+}
+
+model ReturnSettings {
+  id                  String   @id @default(cuid())
+  shop                String   @unique
+  returnWindowDays    Int      @default(30)
+  allowedReasons      Json     @default("[]")
+  returnInstructions  String?
+  autoApprove         Boolean  @default(false)
+  autoApproveReplacements Boolean  @default(false)
+  enableReplacement   Boolean  @default(false) @map("enableExchange")
+  logoUrl             String?
+  portalLogoPosition  String   @default("left")    // "left" or "center"
+  portalButtonColor   String?                       // Primary button bg, e.g. "#0284c7"
+  portalButtonTextColor String?                     // Primary button text, e.g. "#ffffff"
+  portalTextColor     String?                       // Body text color, e.g. "#374151"
+  portalHeadingFont   String   @default("sans-serif") // "sans-serif", "serif", "mono"
+  portalBodyFont      String   @default("sans-serif") // "sans-serif", "serif", "mono"
+  marketReturnWindows Json     @default("[]") // Array of { marketId, marketName, returnWindowDays }
+  enableRxGrouping    Boolean  @default(false)
+  excludeReplacementForRxGroup Boolean @default(false)
+  enableSerialNumbers Boolean  @default(false) // When true, customers select serial numbers when returning
+  webhookUrl          String?                       // Outbound webhook URL for external integrations
+  webhookSecret       String?                       // Shared secret for HMAC-SHA256 signature
+  webhookActive       Boolean  @default(false)      // Kill switch for webhook delivery
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+enum ReturnStatus {
+  SUBMITTED
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  AWAITING_SHIPMENT
+  IN_TRANSIT
+  RECEIVED
+  PARTIALLY_ACCEPTED
+  REFUNDED
+  EXCHANGED
+  CLOSED
+  CANCELLED
+}
+
+enum ResolutionType {
+  REFUND
+  EXCHANGE
+}
+
+enum AuthorType {
+  CUSTOMER
+  AGENT
+  SYSTEM
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  shop        String
+  name        String
+  keyHash     String    @unique
+  keyPrefix   String
+  scopes      Json      @default("[]")
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([shop])
+  @@index([keyHash])
+  @@index([shop, active])
+}
+
+model ReturnPolicy {
+  id          String       @id @default(cuid())
+  shop        String
+  name        String
+  description String?
+  type        PolicyType
+  priority    Int          @default(0)
+  active      Boolean      @default(true)
+  conditions  Json         // Array of condition objects
+  outcome     Json         // Outcome configuration
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([shop, type, active])
+  @@index([shop, priority])
+}
+
+model PolicyEvaluation {
+  id              String         @id @default(cuid())
+  returnRequestId String?
+  returnRequest   ReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  shop            String
+  shopifyOrderId  String
+  evaluatedAt     DateTime       @default(now())
+  results         Json           // Array of { policyId, policyName, matched, outcome }
+  finalOutcome    String         // "ELIGIBLE", "NOT_ELIGIBLE", "AUTO_APPROVE", "AUTO_REJECT", "MANUAL_REVIEW"
+  reasons         Json           // Array of reason strings
+
+  @@index([returnRequestId])
+  @@index([shop, evaluatedAt])
+}
+
+model ReplacementInstruction {
+  id                String        @id @default(cuid())
+  returnRequestId   String        @unique
+  returnRequest     ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  shopifyNewOrderId String?       // The new order created for the replacement
+  replacementItems  Json          @map("exchangeItems") // Array of { productId, variantId, title, quantity }
+  status            String        @default("PENDING") // PENDING, CREATED, FULFILLED, CANCELLED
+  notes             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@map("ExchangeInstruction")
+  @@index([returnRequestId])
+}
+
+
+enum PolicyType {
+  ELIGIBILITY
+  AUTO_ACTION
+  EXCLUSION
+  REQUIREMENT
+}
+
+
+model ReturnShippingLabel {
+  id              String        @id @default(cuid())
+  returnRequestId String        @unique
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  carrier         String        @default("DHL Express")
+  carrierCode     String?       // ProcessWeaver carrier code (e.g., FEDEX, UPS, CANADAPOST)
+  trackingNumber  String
+  trackingUrl     String?
+  labelUrl        String        // URL to the printable label or base64 data URI
+  labelData       String?       // Base64-encoded label image from ProcessWeaver
+  barcode         String        // Barcode value for scanning
+  status          String        @default("CREATED") // CREATED, IN_TRANSIT, DELIVERED
+  source          String        @default("MOCK") // MOCK or PROCESSWEAVER
+  sinNumber       String?       // ProcessWeaver SIN (master tracking number)
+  freight         String?       // Shipping cost from carrier response
+  warehouseAddress Json         // { name, address1, city, zip, country, phone }
+  customerAddress  Json         // { name, address1, city, zip, country, phone }
+  weight          String?       // e.g. "0.5 kg"
+  dimensions      String?       // e.g. "30x20x10 cm"
+  estimatedDelivery String?     // e.g. "3-5 business days"
+  trackingEvents  Json?         // Array of { DateTime, Status, Location, Delivery_Date }
+  lastTrackedAt   DateTime?     // When tracking was last polled
+  podSignedBy     String?       // Proof of delivery — who signed
+  podDocument     String?       // Proof of delivery — base64 document
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([returnRequestId])
+  @@index([trackingNumber])
+  @@index([status])
+}
+
+model CustomReason {
+  id                String   @id @default(cuid())
+  shop              String
+  code              String
+  label             String
+  description       String?
+  appliesToReturn   Boolean  @default(true)
+  appliesToReplacement Boolean  @default(false) @map("appliesToExchange")
+  requiresNote      Boolean  @default(false)
+  active            Boolean  @default(true)
+  customerVisible   Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  markets           Json     @default("[]")
+  replacementExcludedMarkets Json @default("[]")
+  requiresShoppingEligibility Boolean @default(false)
+  translations      Json     @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([shop, code])
+  @@index([shop, active])
+}
+
+model PortalTranslation {
+  id        String   @id @default(cuid())
+  shop      String
+  locale    String
+  messages  Json     @default("{}")
+  isDefault Boolean  @default(false)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([shop, locale])
+  @@index([shop, active])
+}
+
+model ProcessedWebhook {
+  id        String   @id
+  topic     String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model ReturnWarehouse {
+  id          String   @id @default(cuid())
+  shop        String
+  name        String           // e.g. "EU Warehouse", "US Warehouse"
+  address1    String
+  address2    String?
+  city        String
+  province    String?
+  zip         String
+  country     String
+  countryCode String?          // ISO 3166-1 alpha-2
+  phone       String?
+  email       String?
+  isDefault   Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  routingRules ReturnRoutingRule[]
+
+  @@index([shop, active])
+  @@index([shop, isDefault])
+}
+
+model ReturnRoutingRule {
+  id                  String          @id @default(cuid())
+  shop                String
+  marketId            String?         // null = default/fallback rule
+  marketName          String?         // Cached market name for display
+  warehouseId         String
+  warehouse           ReturnWarehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  carrier             String?         // Legacy field — kept for migration compatibility, not used in code
+  carrierAccountId    String?         // Link to CarrierAccount for real label generation
+  carrierAccount      CarrierAccount? @relation(fields: [carrierAccountId], references: [id], onDelete: SetNull)
+  shippingMethod      String          @default("standard") // Legacy field — kept for migration compatibility, not used in code
+  returnInstructions  String?         // Per-rule return instructions shown to customer
+  priority            Int             @default(0)
+  active              Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@unique([shop, marketId])
+  @@index([shop, active])
+  @@index([warehouseId])
+  @@index([carrierAccountId])
+}
+
+/// ProcessWeaver shipping provider configuration per shop.
+/// Stores the API key and endpoint for the ProcessWeaver Ship + Track APIs.
+model ShippingProvider {
+  id              String           @id @default(cuid())
+  shop            String           @unique
+  name            String           @default("ProcessWeaver")
+  apiKey          String           // ProcessWeaver API key (encrypted by app before storage)
+  environment     String           @default("TEST") // TEST or PROD
+  shipEndpoint    String           @default("https://shippingapi.processweaver.com/ShippingAPI/Api/Ship")
+  trackEndpoint   String           @default("https://shippingapi.processweaver.com/TrackAPI/Api/Track")
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  carrierAccounts CarrierAccount[]
+
+  @@index([shop])
+}
+
+/// Per-carrier credentials for ProcessWeaver.
+/// Each record represents one carrier (e.g., FEDEX, UPS, CANADAPOST) with its specific credentials.
+model CarrierAccount {
+  id              String           @id @default(cuid())
+  shop            String
+  providerId      String
+  provider        ShippingProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  name            String           // Display name, e.g. "FedEx US" or "CanadaPost Returns"
+  carrierCode     String           // FEDEX, UPS, DHL, CANADAPOST, AUSPOST, NZPOST, etc.
+  accountNumber   String           // Carrier account number
+  userId          String?          // Carrier user ID
+  password        String?          // Carrier password (encrypted by app before storage)
+  meterNumber     String?          // Carrier meter number (some carriers require this)
+  serviceType     String?          // e.g., PRIORITY_OVERNIGHT, XP, 11
+  paymentType     String           @default("SENDER") // SENDER or RECIPIENT
+  shipDateFormat  String           @default("yyyy-MM-dd") // Date format the carrier expects
+  labelFormat     String           @default("PNG") // PNG, PDF, ZPL — per carrier
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  routingRules    ReturnRoutingRule[]
+
+  @@unique([shop, carrierCode, name])
+  @@index([shop, active])
+  @@index([providerId])
+}
+
+/// Serial numbers assigned at fulfillment time.
+/// Each row represents one physical unit with its serial number,
+/// mapped to a Shopify line item. Synced from Shopify order metafield `custom.serial_numbers`.
+model SerialNumber {
+  id              String          @id @default(cuid())
+  shop            String
+  orderId         String          // Shopify order GID (gid://shopify/Order/xxx)
+  orderName       String          // Display name (e.g. "#1234")
+  lineItemId      String          // Shopify line item GID
+  variantId       String?         // Shopify variant GID (cached for reference)
+  productTitle    String          // Cached product title for display
+  variantTitle    String?         // Cached variant title for display
+  sku             String?         // Cached SKU
+  imageUrl        String?         // Cached product image URL
+  sapLineId       String          // ERP sales order line number (e.g. "000010")
+  serialNumber    String          // Assigned serial number
+  status          String          @default("ACTIVE") // ACTIVE, IN_RETURN, RETURNED
+  returnItemId    String?         // Linked ReturnItem when part of a return
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([shop, orderId, serialNumber])
+  @@index([shop, orderId])
+  @@index([shop, lineItemId])
+  @@index([returnItemId])
+  @@index([status])
+  @@index([shop, orderId, status])
+}
+
+/// Authorized email addresses that can process refunds for a shop.
+/// Only store owners (accountOwner=true) can manage this list.
+model RefundAgent {
+  id        String   @id @default(cuid())
+  shop      String
+  email     String
+  name      String?
+  addedBy   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([shop, email])
+  @@index([shop, active])
+}
+
+/// One-time password records for refund verification.
+model RefundOtp {
+  id          String   @id @default(cuid())
+  shop        String
+  email       String
+  codeHash    String
+  attempts    Int      @default(0)
+  used        Boolean  @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([shop, email, used])
+  @@index([expiresAt])
+}
+
+/// Active refund sessions after OTP verification. 5-minute window.
+model RefundSession {
+  id        String   @id @default(cuid())
+  shop      String
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([shop, email])
+  @@index([token])
+  @@index([expiresAt])
+}

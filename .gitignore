@@ -1,0 +1,34 @@
+node_modules
+/.cache
+/build
+/public/build
+.env
+.env.local
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.peppina/
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# Test artifacts
+coverage/
+.nyc_output/
+tests/
+state/
+
+#  files
+/tmp/
+/docs/
+/tests/

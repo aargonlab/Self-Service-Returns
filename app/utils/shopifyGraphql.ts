@@ -1,0 +1,262 @@
+export const ORDER_QUERY = `#graphql
+  query getOrder($id: ID!) {
+    order(id: $id) {
+      id
+      name
+      email
+      createdAt
+      cancelledAt
+      closedAt
+      displayFinancialStatus
+      displayFulfillmentStatus
+      customer {
+        id
+        firstName
+        lastName
+        email
+      }
+      shippingAddress {
+        firstName
+        lastName
+        address1
+        address2
+        city
+        province
+        provinceCode
+        zip
+        country
+        countryCode
+        phone
+        company
+      }
+      billingAddress {
+        firstName
+        lastName
+        address1
+        address2
+        city
+        province
+        provinceCode
+        zip
+        country
+        countryCode
+        phone
+        company
+      }
+      metafield(namespace: "custom", key: "serial_numbers") {
+        value
+      }
+      lineItems(first: 250) {
+        nodes {
+          id
+          title
+          variantTitle
+          sku
+          variant {
+            id
+          }
+          product {
+            id
+            title
+            productType
+            vendor
+            tags
+          }
+          quantity
+          customAttributes {
+            key
+            value
+          }
+          image {
+            url
+            altText
+          }
+          originalUnitPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          discountedUnitPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+      }
+      fulfillments {
+        id
+        status
+        createdAt
+        deliveredAt
+        updatedAt
+        displayStatus
+        trackingInfo {
+          company
+          number
+          url
+        }
+        fulfillmentLineItems(first: 250) {
+          nodes {
+            id
+            lineItem {
+              id
+            }
+            quantity
+            originalTotalSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+          }
+        }
+      }
+      returns(first: 50) {
+        nodes {
+          id
+          status
+        }
+      }
+    }
+  }
+`;
+
+export const ORDERS_SEARCH_QUERY = `#graphql
+  query searchOrders($query: String!) {
+    orders(first: 5, query: $query) {
+      nodes {
+        id
+        name
+        email
+      }
+    }
+  }
+`;
+
+export const RETURN_CREATE_MUTATION = `#graphql
+  mutation returnCreate($returnInput: ReturnInput!) {
+    returnCreate(returnInput: $returnInput) {
+      return {
+        id
+        status
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+export const SUGGESTED_REFUND_QUERY = `#graphql
+  query suggestedRefund($id: ID!, $refundLineItems: [RefundLineItemInput!]!) {
+    order(id: $id) {
+      suggestedRefund(refundLineItems: $refundLineItems) {
+        amountSet {
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+        suggestedTransactions {
+          parentTransaction {
+            id
+            gateway
+          }
+          amountSet {
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const REFUND_CREATE_MUTATION = `#graphql
+  mutation refundCreate($input: RefundInput!) {
+    refundCreate(input: $input) {
+      refund {
+        id
+        totalRefundedSet {
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+export const DRAFT_ORDER_CREATE_MUTATION = `#graphql
+  mutation draftOrderCreate($input: DraftOrderInput!) {
+    draftOrderCreate(input: $input) {
+      draftOrder {
+        id
+        name
+        invoiceUrl
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+export const DRAFT_ORDER_COMPLETE_MUTATION = `#graphql
+  mutation draftOrderComplete($id: ID!, $paymentPending: Boolean) {
+    draftOrderComplete(id: $id, paymentPending: $paymentPending) {
+      draftOrder {
+        id
+        order {
+          id
+          name
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+export const RETURN_CLOSE_MUTATION = `#graphql
+  mutation returnClose($id: ID!) {
+    returnClose(id: $id) {
+      return {
+        id
+        status
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+export const RETURN_CANCEL_MUTATION = `#graphql
+  mutation returnCancel($id: ID!) {
+    returnCancel(id: $id) {
+      return {
+        id
+        status
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
