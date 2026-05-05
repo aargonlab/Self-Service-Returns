@@ -8,6 +8,9 @@ import type {
 import {
   ORDER_QUERY,
   RETURN_CREATE_MUTATION,
+  RETURN_REQUEST_MUTATION,
+  RETURN_APPROVE_REQUEST_MUTATION,
+  RETURN_DECLINE_REQUEST_MUTATION,
   SUGGESTED_REFUND_QUERY,
   REFUND_CREATE_MUTATION,
   DRAFT_ORDER_CREATE_MUTATION,
@@ -498,6 +501,143 @@ export async function cancelShopifyReturn(
     return { success: true };
   } catch (error) {
     console.error("Error cancelling Shopify return:", error);
+    return { error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+/**
+ * Create a Shopify return request (REQUESTED status, needs approval).
+ * Used for manual-review returns so they appear in Shopify admin.
+ */
+export async function createReturnRequestOnShopify(
+  admin: AdminApiContext,
+  order: ShopifyOrder,
+  items: Array<{
+    lineItemId: string;
+    quantity: number;
+    returnReason?: string;
+    customerNote?: string;
+  }>,
+): Promise<{ returnId: string } | { error: string }> {
+  try {
+    const hasFulfillmentLineItems = order.fulfillments.some(
+      (f) => f.fulfillmentLineItems?.nodes && f.fulfillmentLineItems.nodes.length > 0,
+    );
+    if (!hasFulfillmentLineItems) {
+      return { error: "Cannot create return request: no fulfilled items found." };
+    }
+
+    const returnLineItems = [];
+    const unmapped: string[] = [];
+    for (const item of items) {
+      const fulfillmentLineItemId = getFulfillmentLineItemId(order, item.lineItemId);
+      if (!fulfillmentLineItemId) {
+        unmapped.push(item.lineItemId);
+        continue;
+      }
+      const mappedReason = mapToShopifyReturnReason(item.returnReason);
+      // ReturnRequestLineItemInput uses `customerNote` (max 300 chars), NOT `returnReasonNote`
+      const note = item.customerNote || (mappedReason === "OTHER" ? (RETURN_REASON_LABELS[item.returnReason || ""] || item.returnReason || "Other reason") : undefined);
+      returnLineItems.push({
+        fulfillmentLineItemId,
+        quantity: item.quantity,
+        returnReason: mappedReason,
+        customerNote: note ? note.slice(0, 300) : undefined,
+      });
+    }
+
+    if (returnLineItems.length === 0) {
+      return { error: `Could not map any items to fulfillment line items. Unmapped: ${unmapped.join(", ")}` };
+    }
+
+    if (unmapped.length > 0) {
+      console.warn(`[createReturnRequestOnShopify] ${unmapped.length}/${items.length} items unmapped:`, unmapped);
+    }
+
+    const response = await admin.graphql(RETURN_REQUEST_MUTATION, {
+      variables: {
+        input: {
+          orderId: order.id,
+          returnLineItems,
+        },
+      },
+    });
+
+    const responseJson = await response.json();
+    const { data } = responseJson;
+
+    if (data?.returnRequest?.userErrors?.length > 0) {
+      const errors = data.returnRequest.userErrors;
+      console.error("returnRequest userErrors:", JSON.stringify(errors, null, 2));
+      const errorMessages = errors
+        .map((e: { field: string[]; message: string }) => `${e.field?.join(".")}: ${e.message}`)
+        .join("; ");
+      return { error: errorMessages };
+    }
+
+    if (!data?.returnRequest?.return?.id) {
+      console.error("returnRequest unexpected response:", JSON.stringify(responseJson, null, 2));
+      return { error: "Shopify returnRequest returned no return ID" };
+    }
+
+    return { returnId: data.returnRequest.return.id };
+  } catch (error) {
+    console.error("Error creating return request on Shopify:", error);
+    return { error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+/**
+ * Approve a Shopify return request (REQUESTED → OPEN).
+ */
+export async function approveReturnRequestOnShopify(
+  admin: AdminApiContext,
+  shopifyReturnId: string,
+): Promise<{ success: boolean } | { error: string }> {
+  try {
+    const response = await admin.graphql(RETURN_APPROVE_REQUEST_MUTATION, {
+      variables: { input: { id: shopifyReturnId } },
+    });
+
+    const { data } = await response.json();
+    if (data?.returnApproveRequest?.userErrors?.length > 0) {
+      const errorMessages = data.returnApproveRequest.userErrors
+        .map((e: { message: string }) => e.message)
+        .join(", ");
+      return { error: errorMessages };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error approving Shopify return request:", error);
+    return { error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+/**
+ * Decline a Shopify return request (REQUESTED → DECLINED).
+ */
+export async function declineReturnRequestOnShopify(
+  admin: AdminApiContext,
+  shopifyReturnId: string,
+  declineReason: string = "RETURN_PERIOD_ENDED",
+): Promise<{ success: boolean } | { error: string }> {
+  try {
+    const response = await admin.graphql(RETURN_DECLINE_REQUEST_MUTATION, {
+      variables: { input: { id: shopifyReturnId, declineReason } },
+    });
+
+    const { data } = await response.json();
+    if (data?.returnDeclineRequest?.userErrors?.length > 0) {
+      const errorMessages = data.returnDeclineRequest.userErrors
+        .map((e: { message: string }) => e.message)
+        .join(", ");
+      return { error: errorMessages };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error declining Shopify return request:", error);
     return { error: error instanceof Error ? error.message : "Unknown error" };
   }
 }

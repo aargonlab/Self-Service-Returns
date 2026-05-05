@@ -149,6 +149,26 @@ export async function sendWebhookNotification(
       return;
     }
 
+    // Skip if this event type is not enabled in settings
+    const enabledEvents = Array.isArray(settings.webhookEvents)
+      ? settings.webhookEvents as string[]
+      : [];
+    if (enabledEvents.length > 0 && !enabledEvents.includes(event)) {
+      return;
+    }
+
+    // For return.status_changed, check if the target status is in the allowed list
+    if (event === "return.status_changed") {
+      const statusFilters = Array.isArray(settings.webhookStatusFilters)
+        ? settings.webhookStatusFilters as string[]
+        : [];
+      if (statusFilters.length > 0 && extras?.newStatus) {
+        if (!statusFilters.includes(extras.newStatus as string)) {
+          return;
+        }
+      }
+    }
+
     const data = await buildReturnPayload(returnId, shop, extras);
     if (!data) {
       console.warn(`[Webhook] Return ${returnId} not found, skipping ${event} notification`);

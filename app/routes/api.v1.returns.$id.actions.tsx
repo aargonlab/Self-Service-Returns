@@ -18,6 +18,7 @@ const VALID_ACTIONS = [
   "process_refund",
   "process_replacement",
   "transition",
+  "skip_shipping",
 ] as const;
 
 type ValidAction = typeof VALID_ACTIONS[number];
@@ -185,6 +186,12 @@ export const action = async ({ params, request }: ActionFunctionArgs) => {
         case "transition":
           if (!body.status) return apiBadRequest("'status' is required for transition action", undefined, ctx.shop, ctx.requestOrigin);
           result = await transitionStatusAction(resolvedId, body.status, ctx.shop, actor);
+          break;
+        case "skip_shipping":
+          if (returnRequest.status !== "APPROVED") {
+            return apiBadRequest("skip_shipping is only available when the return is in APPROVED status", undefined, ctx.shop, ctx.requestOrigin);
+          }
+          result = await transitionStatusAction(resolvedId, "AWAITING_SHIPMENT", ctx.shop, actor);
           break;
         default:
           // This should never happen due to earlier validation, but TypeScript doesn't know that

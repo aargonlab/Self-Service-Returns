@@ -2,13 +2,32 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { useLoaderData, useFetcher } from "@remix-run/react";
 import { getReturnRequestByIdAndEmail } from "~/models/returnRequest.server";
+import { getShippingLabel } from "~/services/shippingLabel.server";
 import {
   STATUS_PROGRESS,
   RETURN_REASONS,
 } from "~/utils/constants";
 import type { ReturnStatus as ReturnStatusType } from "@prisma/client";
+import { useCallback } from "react";
 import { useTranslation } from "~/utils/useTranslation";
 import prisma from "~/db.server";
+
+function downloadDataUri(dataUri: string, filename: string) {
+  const [header, base64] = dataUri.split(",");
+  const mime = header.match(/:(.*?);/)?.[1] || "application/octet-stream";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   const { id } = params;
@@ -51,10 +70,20 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
     throw new Response("Invalid credentials", { status: 403 });
   }
 
+  // Fetch shipping label if one exists
+  const shippingLabel = await getShippingLabel(id, returnRequest.shop);
+
   // Bug #241 Fix: Include shop in loader response
   return json({
     returnRequest,
-    shop: returnRequest.shop
+    shop: returnRequest.shop,
+    shippingLabel: shippingLabel ? {
+      carrier: shippingLabel.carrier,
+      trackingNumber: shippingLabel.trackingNumber,
+      trackingUrl: shippingLabel.trackingUrl,
+      labelUrl: shippingLabel.labelUrl,
+      labelContentType: shippingLabel.labelUrl?.startsWith("data:image/") ? "image" : "pdf",
+    } : null,
   });
 };
 
@@ -122,8 +151,19 @@ export const action = async ({ params, request }: ActionFunctionArgs) => {
 };
 
 export default function ReturnStatus() {
-  const { returnRequest, shop } = useLoaderData<typeof loader>();
+  const { returnRequest, shop, shippingLabel } = useLoaderData<typeof loader>();
   const { t, formatDate } = useTranslation();
+
+  const handleDownloadLabel = useCallback(() => {
+    if (!shippingLabel?.labelUrl) return;
+    const ext = shippingLabel.labelContentType === "image" ? "png" : "pdf";
+    const filename = `return-label.${ext}`;
+    if (shippingLabel.labelUrl.startsWith("data:")) {
+      downloadDataUri(shippingLabel.labelUrl, filename);
+    } else {
+      window.open(shippingLabel.labelUrl, "_blank");
+    }
+  }, [shippingLabel]);
   const fetcher = useFetcher();
   const isAccepting = fetcher.state === "submitting";
   const status = returnRequest.status as ReturnStatusType;
@@ -236,6 +276,62 @@ export default function ReturnStatus() {
                 })}
               </p>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Shipping Label */}
+      {shippingLabel && (
+        <div className="portal-card mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-5 h-5 text-brand-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 className="font-medium text-gray-900">{t("portal.status.labelTitle")}</h3>
+          </div>
+
+          {/* Tracking info */}
+          <div className="bg-gray-50 rounded-lg p-4 mb-3">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {shippingLabel.carrier && (
+                <div>
+                  <p className="text-gray-500">{t("portal.status.labelCarrier")}</p>
+                  <p className="font-medium text-gray-900">{shippingLabel.carrier}</p>
+                </div>
+              )}
+              {shippingLabel.trackingNumber && (
+                <div>
+                  <p className="text-gray-500">{t("portal.status.labelTracking")}</p>
+                  {shippingLabel.trackingUrl ? (
+                    <a
+                      href={shippingLabel.trackingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-brand-600 hover:text-brand-700 underline"
+                    >
+                      {shippingLabel.trackingNumber}
+                    </a>
+                  ) : (
+                    <p className="font-medium text-gray-900">{shippingLabel.trackingNumber}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Download / Print button */}
+          {shippingLabel.labelUrl && (
+            <button
+              type="button"
+              onClick={handleDownloadLabel}
+              className="inline-flex items-center gap-2 w-full justify-center py-3 px-4 rounded-lg text-white font-medium transition-colors cursor-pointer"
+              style={{ backgroundColor: "var(--brand-500, #0284c7)" }}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              {t("portal.status.downloadLabel")}
+            </button>
           )}
         </div>
       )}

@@ -56,9 +56,16 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
     if (!returnRequest) return apiNotFound("Return not found", ctx.shop, ctx.requestOrigin);
 
     // Filter out internal comments for API consumers
+    // Add label download URL so consumers can fetch the full label file separately
     const filtered = {
       ...returnRequest,
       comments: returnRequest.comments.filter((c: any) => !c.isInternal),
+      shippingLabel: returnRequest.shippingLabel
+        ? {
+            ...returnRequest.shippingLabel,
+            labelDownloadUrl: `/api/v1/returns/${returnRequest.id}/label`,
+          }
+        : null,
     };
 
     return apiSuccess(filtered, 200, ctx.shop, ctx.requestOrigin);

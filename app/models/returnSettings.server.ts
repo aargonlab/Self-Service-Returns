@@ -51,6 +51,8 @@ export async function updateSettings(
     webhookUrl?: string | null;
     webhookSecret?: string | null;
     webhookActive?: boolean;
+    webhookEvents?: string[];
+    webhookStatusFilters?: string[];
   },
 ) {
   // Bug #386: Validate returnWindowDays is within valid range
@@ -82,6 +84,8 @@ export async function updateSettings(
   const updateData: Prisma.ReturnSettingsUpdateInput = {
     ...data,
     marketReturnWindows: data.marketReturnWindows as Prisma.InputJsonValue | undefined,
+    webhookEvents: data.webhookEvents as Prisma.InputJsonValue | undefined,
+    webhookStatusFilters: data.webhookStatusFilters as Prisma.InputJsonValue | undefined,
   };
 
   return prisma.returnSettings.upsert({

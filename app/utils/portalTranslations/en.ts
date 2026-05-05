@@ -88,6 +88,10 @@ const en: Record<string, string> = {
   "portal.status.you": "You",
   "portal.status.supportTeam": "Support Team",
   "portal.status.requestId": "Request ID: {{id}}",
+  "portal.status.labelTitle": "Return Shipping Label",
+  "portal.status.labelCarrier": "Carrier",
+  "portal.status.labelTracking": "Tracking Number",
+  "portal.status.downloadLabel": "Download Shipping Label",
 
   // Status messages (returns.$id.status)
   "portal.status.msg.SUBMITTED": "We've received your return request and will review it shortly.",

@@ -83,32 +83,47 @@ export async function approveReturn(
       };
     }
 
-    // Create Shopify return BEFORE transitioning to APPROVED
+    // Create or approve Shopify return BEFORE transitioning to APPROVED
     let labelWarning = "";
-    const returnItems = returnRequest.items.map((item) => ({
-      lineItemId: item.shopifyLineItemId,
-      quantity: item.quantity,
-      returnReason: item.returnReason,
-      customerNote: item.customerNote || undefined,
-    }));
 
-    const shopifyResult = await createReturnOnShopify(
-      admin,
-      order,
-      returnItems,
-    );
+    if (returnRequest.shopifyReturnId) {
+      // Shopify return request already exists (from manual review) — approve it
+      const { approveReturnRequestOnShopify } = await import("~/services/shopify.server");
+      const approveResult = await approveReturnRequestOnShopify(admin, returnRequest.shopifyReturnId);
+      if ("error" in approveResult) {
+        return {
+          success: false,
+          message: `Failed to approve Shopify return request: ${approveResult.error}. Please try again.`,
+        };
+      }
+      // Transition local status to APPROVED
+      await transitionStatus(returnId, "APPROVED", actor, undefined, shop);
+    } else {
+      // No Shopify return yet (auto-approve path) — create one directly as OPEN
+      const returnItems = returnRequest.items.map((item) => ({
+        lineItemId: item.shopifyLineItemId,
+        quantity: item.quantity,
+        returnReason: item.returnReason,
+        customerNote: item.customerNote || undefined,
+      }));
 
-    if (!("returnId" in shopifyResult)) {
-      // Shopify return creation failed - don't transition status, return error
-      return {
-        success: false,
-        message: `Failed to create Shopify return: ${shopifyResult.error}. Please try again.`,
-      };
+      const shopifyResult = await createReturnOnShopify(
+        admin,
+        order,
+        returnItems,
+      );
+
+      if (!("returnId" in shopifyResult)) {
+        return {
+          success: false,
+          message: `Failed to create Shopify return: ${shopifyResult.error}. Please try again.`,
+        };
+      }
+
+      // Shopify return created successfully - now transition to APPROVED
+      await transitionStatus(returnId, "APPROVED", actor, undefined, shop);
+      await updateReturnRequestShopifyId(returnId, shop, shopifyResult.returnId);
     }
-
-    // Shopify return created successfully - now transition to APPROVED
-    await transitionStatus(returnId, "APPROVED", actor, undefined, shop);
-    await updateReturnRequestShopifyId(returnId, shop, shopifyResult.returnId);
 
     // Add window override audit trail if applicable
     if (returnRequest.windowOverride) {
@@ -121,65 +136,89 @@ export async function approveReturn(
       });
     }
 
-    // Auto-generate return shipping label
+    // Auto-generate return shipping label (only if ProcessWeaver is configured)
+    let labelGenerated = false;
     if (order.shippingAddress) {
-      try {
-        const customerAddr = {
-          name:
-            `${order.shippingAddress.firstName || ""} ${order.shippingAddress.lastName || ""}`.trim() ||
-            returnRequest.customerName,
-          company: order.shippingAddress.company || undefined,
-          address1: order.shippingAddress.address1 || "",
-          address2: order.shippingAddress.address2 || undefined,
-          city: order.shippingAddress.city || "",
-          province: order.shippingAddress.province || undefined,
-          zip: order.shippingAddress.zip || "",
-          country: order.shippingAddress.country || "",
-          phone: order.shippingAddress.phone || undefined,
-        };
-        // Validate address completeness and minimum lengths before generating label
-        const MIN_LENGTHS: Record<string, number> = { name: 1, address1: 1, city: 1, zip: 1, country: 2 };
-        const requiredFields = ['name', 'address1', 'city', 'zip', 'country'] as const;
-        const missing = requiredFields.filter(f => {
-          const val = customerAddr[f]?.trim();
-          return !val || val.length < (MIN_LENGTHS[f] || 1);
-        });
-        if (missing.length > 0) {
-          throw new Error(`Incomplete shipping address. Missing or too short: ${missing.join(", ")}`);
+      const { getShippingProvider } = await import("~/models/shippingProvider.server");
+      const provider = await getShippingProvider(returnRequest.shop, false);
+      if (provider?.active) {
+        // ProcessWeaver is configured — attempt auto-generation
+        try {
+          const customerAddr = {
+            name:
+              `${order.shippingAddress.firstName || ""} ${order.shippingAddress.lastName || ""}`.trim() ||
+              returnRequest.customerName,
+            company: order.shippingAddress.company || undefined,
+            address1: order.shippingAddress.address1 || "",
+            address2: order.shippingAddress.address2 || undefined,
+            city: order.shippingAddress.city || "",
+            province: order.shippingAddress.province || undefined,
+            zip: order.shippingAddress.zip || "",
+            country: order.shippingAddress.country || "",
+            phone: order.shippingAddress.phone || undefined,
+          };
+          // Validate address completeness and minimum lengths before generating label
+          const MIN_LENGTHS: Record<string, number> = { name: 1, address1: 1, city: 1, zip: 1, country: 2 };
+          const requiredFields = ['name', 'address1', 'city', 'zip', 'country'] as const;
+          const missing = requiredFields.filter(f => {
+            const val = customerAddr[f]?.trim();
+            return !val || val.length < (MIN_LENGTHS[f] || 1);
+          });
+          if (missing.length > 0) {
+            throw new Error(`Incomplete shipping address. Missing or too short: ${missing.join(", ")}`);
+          }
+          await generateShippingLabel({
+            returnRequestId: returnId,
+            customerAddress: customerAddr,
+            orderName: returnRequest.shopifyOrderName,
+            itemCount: returnRequest.items.length,
+            shop: returnRequest.shop,
+            marketId: returnRequest.marketId,
+          });
+          labelGenerated = true;
+        } catch (err) {
+          console.error("Failed to generate shipping label:", err);
+          const errorMsg = err instanceof Error ? err.message : "Unknown error";
+          labelWarning = ` (Warning: Shipping label generation failed: ${errorMsg})`;
+          // Add timeline event so merchant can see the failure
+          try {
+            await addTimelineEvent({
+              returnRequestId: returnId,
+              event: "Warning: Shipping label generation failed",
+              actor: "System",
+              actorType: "SYSTEM",
+              details: { error: errorMsg },
+              shop: returnRequest.shop,
+            });
+          } catch (timelineErr) {
+            console.error("Failed to add label-failure timeline entry:", timelineErr);
+          }
         }
-        await generateShippingLabel({
-          returnRequestId: returnId,
-          customerAddress: customerAddr,
-          orderName: returnRequest.shopifyOrderName,
-          itemCount: returnRequest.items.length,
-          shop: returnRequest.shop,
-          marketId: returnRequest.marketId,
-        });
-      } catch (err) {
-        console.error("Failed to generate shipping label:", err);
-        const errorMsg = err instanceof Error ? err.message : "Unknown error";
-        labelWarning = ` (Warning: Shipping label generation failed: ${errorMsg})`;
-        // Add timeline event so merchant can see the failure
+      } else {
+        // No shipping provider configured — skip auto-generation, merchant will upload manually
         try {
           await addTimelineEvent({
             returnRequestId: returnId,
-            event: "Warning: Shipping label generation failed",
+            event: "No shipping provider configured. Please upload a return label manually from the return detail page.",
             actor: "System",
             actorType: "SYSTEM",
-            details: { error: errorMsg },
             shop: returnRequest.shop,
           });
-        } catch (timelineErr) {
-          console.error("Failed to add label-failure timeline entry:", timelineErr);
+        } catch (e) {
+          console.error("Failed to add no-provider timeline entry:", e);
         }
       }
     }
 
-    // Auto-transition to AWAITING_SHIPMENT
-    await transitionStatus(returnId, "AWAITING_SHIPMENT", {
-      name: "System",
-      type: "SYSTEM",
-    }, undefined, shop);
+    // Only transition to AWAITING_SHIPMENT if a label was successfully generated.
+    // If no label exists (manual upload scenario or generation failure), stay at APPROVED
+    // until a label is uploaded — the label upload flow will trigger this transition.
+    if (labelGenerated) {
+      await transitionStatus(returnId, "AWAITING_SHIPMENT", {
+        name: "System",
+        type: "SYSTEM",
+      }, undefined, shop);
+    }
 
     // Send approval email
     const settings = await getSettings(returnRequest.shop);
@@ -228,6 +267,28 @@ export async function rejectReturn(
     }
 
     await transitionStatus(returnId, "REJECTED", actor, { reason }, shop);
+
+    // Decline Shopify return request if one exists
+    if (returnRequest.shopifyReturnId) {
+      try {
+        const { unauthenticated } = await import("~/shopify.server");
+        const { admin } = await unauthenticated.admin(shop);
+        const { declineReturnRequestOnShopify } = await import("~/services/shopify.server");
+        const declineResult = await declineReturnRequestOnShopify(admin, returnRequest.shopifyReturnId);
+        if ("error" in declineResult) {
+          console.error(`[rejectReturn] Failed to decline Shopify return request ${returnRequest.shopifyReturnId}: ${declineResult.error}`);
+          await addTimelineEvent({
+            returnRequestId: returnId,
+            event: `Warning: Failed to decline Shopify return request: ${declineResult.error}`,
+            actor: "System",
+            actorType: "SYSTEM",
+            shop,
+          });
+        }
+      } catch (err) {
+        console.error(`[rejectReturn] Error declining Shopify return request for ${returnId}:`, err);
+      }
+    }
 
     // Release any serial numbers that were part of this return (with retry)
     // updateMany with count check — if count is 0, SNs were already released or don't exist

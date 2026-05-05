@@ -5,6 +5,7 @@ import {
   useNavigation,
   Form,
   useActionData,
+  useFetcher,
 } from "@remix-run/react";
 import {
   Page,
@@ -25,8 +26,9 @@ import {
   FormLayout,
   SkeletonPage,
   SkeletonBodyText,
+  DropZone,
 } from "@shopify/polaris";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { authenticate } from "~/shopify.server";
 import { getReturnRequest } from "~/models/returnRequest.server";
 import { getShippingLabel } from "~/services/shippingLabel.server";
@@ -53,8 +55,25 @@ import {
 import prisma from "~/db.server";
 import type { ReturnStatus } from "@prisma/client";
 
+function downloadDataUri(dataUri: string, filename: string) {
+  const [header, base64] = dataUri.split(",");
+  const mime = header.match(/:(.*?);/)?.[1] || "application/octet-stream";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export const loader = async ({ params, request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const returnRequest = await getReturnRequest(params.id!, session.shop);
 
   if (!returnRequest || returnRequest.shop !== session.shop) {
@@ -96,6 +115,41 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
     if (!reasonLabels[code]) {
       reasonLabels[code] = LEGACY_LABELS[code] || code;
     }
+  }
+
+  // Retroactive Shopify return request creation for existing PENDING_REVIEW returns
+  // that were created before the returnRequest API integration was deployed.
+  // Fire-and-forget — does not block the loader response.
+  if (
+    !returnRequest.shopifyReturnId &&
+    (returnRequest.status === "PENDING_REVIEW" || returnRequest.status === "SUBMITTED")
+  ) {
+    (async () => {
+      try {
+        const { fetchOrder, createReturnRequestOnShopify } = await import("~/services/shopify.server");
+        const { updateReturnRequestShopifyId } = await import("~/models/returnRequest.server");
+
+        const order = await fetchOrder(admin, returnRequest.shopifyOrderId);
+        if (!order) return;
+
+        const returnItems = returnRequest.items.map((item: any) => ({
+          lineItemId: item.shopifyLineItemId,
+          quantity: item.quantity,
+          returnReason: item.returnReason,
+          customerNote: item.customerNote || undefined,
+        }));
+
+        const result = await createReturnRequestOnShopify(admin, order, returnItems);
+        if ("returnId" in result) {
+          await updateReturnRequestShopifyId(returnRequest.id, session.shop, result.returnId);
+          console.info(`[RetroSync] Created Shopify return request ${result.returnId} for existing return ${returnRequest.id}`);
+        } else {
+          console.warn(`[RetroSync] Failed to create Shopify return request for ${returnRequest.id}: ${result.error}`);
+        }
+      } catch (err) {
+        console.error(`[RetroSync] Error creating Shopify return request for ${returnRequest.id}:`, err);
+      }
+    })();
   }
 
   return json({
@@ -189,6 +243,57 @@ export const action = async ({ params, request }: ActionFunctionArgs) => {
       result = await addCommentAction(returnId, content, isInternal, session.shop, actor);
     } else if (intent === "cancel") {
       result = await cancelReturn(admin, returnId, session.shop, actor);
+    } else if (intent === "skip-shipping") {
+      if (returnRequest.status !== "APPROVED") {
+        return json({ success: false, message: "Skip shipping is only available when the return is in APPROVED status." }, { status: 400 });
+      }
+      result = await transitionStatusAction(returnId, "AWAITING_SHIPMENT", session.shop, actor);
+    } else if (intent === "upload-label") {
+      const carrier = formData.get("carrier") as string;
+      const trackingNumber = formData.get("trackingNumber") as string;
+      const trackingUrl = formData.get("trackingUrl") as string;
+      const labelFileBase64 = formData.get("labelFileBase64") as string;
+      const labelContentType = formData.get("labelContentType") as string;
+      const labelFileName = formData.get("labelFileName") as string;
+
+      if (!carrier || !trackingNumber || !labelFileBase64 || !labelContentType) {
+        return json({ success: false, message: "Missing required fields: carrier, tracking number, and label file." }, { status: 400 });
+      }
+
+      // Validate file type
+      const allowedTypes = ["application/pdf", "image/png", "image/jpeg", "image/jpg"];
+      if (!allowedTypes.includes(labelContentType)) {
+        return json({ success: false, message: "Invalid file type. Allowed: PDF, PNG, JPG." }, { status: 400 });
+      }
+
+      const { uploadManualLabel } = await import("~/services/shippingLabel.server");
+      await uploadManualLabel({
+        returnRequestId: returnId,
+        shop: session.shop,
+        carrier,
+        trackingNumber,
+        trackingUrl: trackingUrl || undefined,
+        labelFileBase64,
+        labelContentType,
+        labelFileName: labelFileName || "label",
+      });
+
+      return json({ success: true, message: "Shipping label uploaded successfully." });
+    } else if (intent === "update-label") {
+      const carrier = formData.get("carrier") as string;
+      const trackingNumber = formData.get("trackingNumber") as string;
+      const trackingUrl = formData.get("trackingUrl") as string;
+
+      const { updateManualLabel } = await import("~/services/shippingLabel.server");
+      await updateManualLabel({
+        returnRequestId: returnId,
+        shop: session.shop,
+        carrier: carrier || undefined,
+        trackingNumber: trackingNumber || undefined,
+        trackingUrl,
+      });
+
+      return json({ success: true, message: "Tracking info updated successfully." });
     } else {
       return json({ success: false, message: "Unknown action." }, { status: 400 });
     }
@@ -212,6 +317,17 @@ export default function ReturnDetail() {
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const isSubmitting = navigation.state === "submitting";
+  const labelFetcher = useFetcher<{ success: boolean; message?: string }>();
+
+  const handlePrintLabel = useCallback(() => {
+    if (!shippingLabel?.labelUrl) return;
+    if (shippingLabel.labelUrl.startsWith("data:")) {
+      const isPdf = shippingLabel.labelUrl.startsWith("data:application/pdf");
+      downloadDataUri(shippingLabel.labelUrl, isPdf ? "return-label.pdf" : "return-label.png");
+    } else {
+      window.open(shippingLabel.labelUrl, "_blank");
+    }
+  }, [shippingLabel]);
 
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -223,6 +339,39 @@ export default function ReturnDetail() {
   const [brokenImages, setBrokenImages] = useState<Set<string>>(new Set());
   const [refundOtpModalOpen, setRefundOtpModalOpen] = useState(false);
   const [refundSessionToken, setRefundSessionToken] = useState<string | null>(null);
+
+  // Manual label upload state
+  const [labelUploadOpen, setLabelUploadOpen] = useState(false);
+  const [labelFile, setLabelFile] = useState<File | null>(null);
+  const [labelCarrier, setLabelCarrier] = useState("");
+  const [labelTrackingNumber, setLabelTrackingNumber] = useState("");
+  const [labelTrackingUrl, setLabelTrackingUrl] = useState("");
+  const labelUploading = labelFetcher.state !== "idle";
+
+  // Handle manual label upload via useFetcher (proper Shopify auth in embedded apps)
+  const handleLabelUpload = async () => {
+    if (!labelFile || !labelCarrier.trim() || !labelTrackingNumber.trim()) return;
+    try {
+      // Convert file to base64
+      const buffer = await labelFile.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+      );
+
+      const formData = new FormData();
+      formData.append("intent", "upload-label");
+      formData.append("carrier", labelCarrier.trim());
+      formData.append("trackingNumber", labelTrackingNumber.trim());
+      formData.append("trackingUrl", labelTrackingUrl.trim());
+      formData.append("labelFileBase64", base64);
+      formData.append("labelContentType", labelFile.type);
+      formData.append("labelFileName", labelFile.name);
+
+      labelFetcher.submit(formData, { method: "POST" });
+    } catch (err) {
+      shopify.toast.show("Failed to read label file", { isError: true });
+    }
+  };
 
   // Bug #279 Fix: Close modals after successful form submission
   const prevNavigationState = useRef(navigation.state);
@@ -253,6 +402,24 @@ export default function ReturnDetail() {
       shopify.toast.show(actionData.message);
     }
   }, [actionData]);
+
+  // Handle label upload fetcher response
+  useEffect(() => {
+    if (labelFetcher.state === "idle" && labelFetcher.data) {
+      if (labelFetcher.data.success) {
+        shopify.toast.show("Label uploaded successfully");
+        setLabelUploadOpen(false);
+        setLabelFile(null);
+        setLabelCarrier("");
+        setLabelTrackingNumber("");
+        setLabelTrackingUrl("");
+        // Reload the page to show the new label
+        window.location.reload();
+      } else {
+        shopify.toast.show(labelFetcher.data.message || "Upload failed", { isError: true });
+      }
+    }
+  }, [labelFetcher.state, labelFetcher.data]);
 
   // Bug #272 Fix: Helper for safe address field access
   const getAddressField = (obj: any, field: string): string => {
@@ -458,12 +625,99 @@ export default function ReturnDetail() {
             </Card>
           </div>
 
-          {/* Label Generation Prompt */}
+          {/* Manual Label Upload — shown when no label exists and return is in a shippable state */}
           {!shippingLabel && (status === "AWAITING_SHIPMENT" || status === "APPROVED") && (
             <div style={{ marginTop: "16px" }}>
-              <Banner tone="info">
-                <p>No shipping label has been generated yet. The label is auto-generated when the return is approved if the order has a shipping address.</p>
-              </Banner>
+              <Card>
+                <BlockStack gap="300">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <BlockStack gap="100">
+                      <Text as="h2" variant="headingMd">Return Shipping Label</Text>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        No label has been generated yet. Upload a shipping label to provide the customer with return instructions.
+                      </Text>
+                    </BlockStack>
+                    <Button variant="primary" onClick={() => setLabelUploadOpen(true)}>
+                      Upload Label
+                    </Button>
+                  </InlineStack>
+
+                  {labelUploadOpen && (
+                    <>
+                      <Divider />
+                      <FormLayout>
+                        <TextField
+                          label="Carrier"
+                          value={labelCarrier}
+                          onChange={setLabelCarrier}
+                          autoComplete="off"
+                          placeholder="e.g., DHL Express, UPS, FedEx"
+                          requiredIndicator
+                        />
+                        <TextField
+                          label="Tracking Number"
+                          value={labelTrackingNumber}
+                          onChange={setLabelTrackingNumber}
+                          autoComplete="off"
+                          placeholder="e.g., 1Z999AA10123456784"
+                          requiredIndicator
+                        />
+                        <TextField
+                          label="Tracking URL"
+                          value={labelTrackingUrl}
+                          onChange={setLabelTrackingUrl}
+                          autoComplete="off"
+                          placeholder="e.g., https://www.ups.com/track?tracknum=..."
+                          helpText="Optional. The full URL where the customer can track the shipment."
+                        />
+                        <DropZone
+                          accept="image/png,image/jpeg,application/pdf"
+                          type="file"
+                          onDrop={(_dropFiles, acceptedFiles) => {
+                            if (acceptedFiles.length > 0) setLabelFile(acceptedFiles[0]);
+                          }}
+                          variableHeight
+                        >
+                          {labelFile ? (
+                            <Box padding="400">
+                              <InlineStack gap="200" blockAlign="center">
+                                <Text as="span" variant="bodyMd">{labelFile.name}</Text>
+                                <Text as="span" variant="bodySm" tone="subdued">
+                                  ({(labelFile.size / 1024).toFixed(0)} KB)
+                                </Text>
+                                <Button variant="plain" tone="critical" onClick={() => setLabelFile(null)}>
+                                  Remove
+                                </Button>
+                              </InlineStack>
+                            </Box>
+                          ) : (
+                            <DropZone.FileUpload actionHint="Accepts PDF, PNG, and JPG" />
+                          )}
+                        </DropZone>
+                        <InlineStack gap="200">
+                          <Button
+                            variant="primary"
+                            onClick={handleLabelUpload}
+                            loading={labelUploading}
+                            disabled={!labelFile || !labelCarrier.trim() || !labelTrackingNumber.trim()}
+                          >
+                            Upload Label
+                          </Button>
+                          <Button onClick={() => {
+                            setLabelUploadOpen(false);
+                            setLabelFile(null);
+                            setLabelCarrier("");
+                            setLabelTrackingNumber("");
+                            setLabelTrackingUrl("");
+                          }}>
+                            Cancel
+                          </Button>
+                        </InlineStack>
+                      </FormLayout>
+                    </>
+                  )}
+                </BlockStack>
+              </Card>
             </div>
           )}
 
@@ -482,13 +736,19 @@ export default function ReturnDetail() {
                         </Badge>
                       </InlineStack>
                     </BlockStack>
-                    <Button
-                      url={shippingLabel.labelUrl}
-                      target="_blank"
-                      variant="primary"
-                    >
-                      Print Label
-                    </Button>
+                    <InlineStack gap="200">
+                      <Button
+                        onClick={handlePrintLabel}
+                        variant="primary"
+                      >
+                        Print Label
+                      </Button>
+                      {(shippingLabel.source === "MOCK" || shippingLabel.source === "MANUAL") && (
+                        <Button onClick={() => setLabelUploadOpen(true)}>
+                          Replace Label
+                        </Button>
+                      )}
+                    </InlineStack>
                   </InlineStack>
 
                   <Divider />
@@ -595,6 +855,84 @@ export default function ReturnDetail() {
                       })}
                     </Text>
                   </BlockStack>
+
+                  {labelUploadOpen && (shippingLabel.source === "MOCK" || shippingLabel.source === "MANUAL") && (
+                    <>
+                      <Divider />
+                      <BlockStack gap="300">
+                        <Text as="h3" variant="headingSm">Replace Shipping Label</Text>
+                        <FormLayout>
+                          <TextField
+                            label="Carrier"
+                            value={labelCarrier}
+                            onChange={setLabelCarrier}
+                            autoComplete="off"
+                            placeholder="e.g., DHL Express, UPS, FedEx"
+                            requiredIndicator
+                          />
+                          <TextField
+                            label="Tracking Number"
+                            value={labelTrackingNumber}
+                            onChange={setLabelTrackingNumber}
+                            autoComplete="off"
+                            placeholder="e.g., 1Z999AA10123456784"
+                            requiredIndicator
+                          />
+                          <TextField
+                            label="Tracking URL"
+                            value={labelTrackingUrl}
+                            onChange={setLabelTrackingUrl}
+                            autoComplete="off"
+                            placeholder="e.g., https://www.ups.com/track?tracknum=..."
+                            helpText="Optional. The full URL where the customer can track the shipment."
+                          />
+                          <DropZone
+                            accept="image/png,image/jpeg,application/pdf"
+                            type="file"
+                            onDrop={(_dropFiles, acceptedFiles) => {
+                              if (acceptedFiles.length > 0) setLabelFile(acceptedFiles[0]);
+                            }}
+                            variableHeight
+                          >
+                            {labelFile ? (
+                              <Box padding="400">
+                                <InlineStack gap="200" blockAlign="center">
+                                  <Text as="span" variant="bodyMd">{labelFile.name}</Text>
+                                  <Text as="span" variant="bodySm" tone="subdued">
+                                    ({(labelFile.size / 1024).toFixed(0)} KB)
+                                  </Text>
+                                  <Button variant="plain" tone="critical" onClick={() => setLabelFile(null)}>
+                                    Remove
+                                  </Button>
+                                </InlineStack>
+                              </Box>
+                            ) : (
+                              <DropZone.FileUpload actionHint="Accepts PDF, PNG, and JPG" />
+                            )}
+                          </DropZone>
+                          <InlineStack gap="200">
+                            <Button
+                              variant="primary"
+                              onClick={handleLabelUpload}
+                              loading={labelUploading}
+                              disabled={!labelFile || !labelCarrier.trim() || !labelTrackingNumber.trim()}
+                            >
+                              Upload Label
+                            </Button>
+                            <Button onClick={() => {
+                              setLabelUploadOpen(false);
+                              setLabelFile(null);
+                              setLabelCarrier("");
+                              setLabelTrackingNumber("");
+                              setLabelTrackingUrl("");
+                            }}>
+                              Cancel
+                            </Button>
+                          </InlineStack>
+                        </FormLayout>
+                      </BlockStack>
+                    </>
+                  )}
                 </BlockStack>
               </Card>
             </div>
@@ -708,6 +1046,15 @@ export default function ReturnDetail() {
                 >
                   Reject Return
                 </Button>
+              )}
+
+              {status === "APPROVED" && !shippingLabel && (
+                <Form method="post">
+                  <input type="hidden" name="intent" value="skip-shipping" />
+                  <Button submit fullWidth disabled={isSubmitting} variant="plain">
+                    Skip Shipping
+                  </Button>
+                </Form>
               )}
 
               {/* Other status transitions — hide the action that doesn't match the resolution type */}

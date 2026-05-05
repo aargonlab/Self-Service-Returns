@@ -559,6 +559,14 @@ export async function handleAutoAction(
           console.warn(`[Email] FAILED confirmation email for return ${returnRequest.id}, customer ${email}:`, err)
         );
       }
+
+      // Create Shopify return request for visibility in Shopify admin (fire-and-forget)
+      tryCreateShopifyReturnRequest(
+        returnRequest.id,
+        shop,
+        returnRequest.items || [],
+        returnRequest.shopifyOrderId,
+      ).catch((err: any) => console.error(`[ShopifyReturnRequest] Failed for windowExpired return ${returnRequest.id}:`, err));
     } catch (err) {
       console.error(`[WindowExpired] Failed to transition return ${returnRequest.id} to PENDING_REVIEW:`, err);
     }
@@ -648,6 +656,14 @@ export async function handleAutoAction(
           console.warn(`[Email] FAILED confirmation email for return ${returnRequest.id}, customer ${email}:`, err)
         );
       }
+
+      // Create Shopify return request for visibility in Shopify admin (fire-and-forget)
+      tryCreateShopifyReturnRequest(
+        returnRequest.id,
+        shop,
+        returnRequest.items || [],
+        returnRequest.shopifyOrderId,
+      ).catch((err: any) => console.error(`[ShopifyReturnRequest] Failed for manual-review return ${returnRequest.id}:`, err));
     } catch (err) {
       console.error(`[ManualReview] Failed to transition return ${returnRequest.id} to PENDING_REVIEW:`, err);
     }
@@ -663,5 +679,49 @@ export async function handleAutoAction(
     } catch (err) {
       console.error(`[Confirmation] Failed to send confirmation email for return ${returnRequest.id}:`, err);
     }
+  }
+}
+
+/**
+ * Attempt to create a Shopify return request (REQUESTED status) for returns
+ * that need manual review. This makes them visible in the Shopify admin.
+ * Failures are non-blocking — the local return still works without Shopify visibility.
+ */
+async function tryCreateShopifyReturnRequest(
+  returnRequestId: string,
+  shop: string,
+  items: Array<{ shopifyLineItemId: string; quantity: number; returnReason: string; customerNote?: string | null }>,
+  shopifyOrderId: string,
+): Promise<void> {
+  try {
+    const { unauthenticated } = await import("~/shopify.server");
+    const { admin } = await unauthenticated.admin(shop);
+    const { fetchOrder, createReturnRequestOnShopify } = await import("~/services/shopify.server");
+    const { updateReturnRequestShopifyId } = await import("~/models/returnRequest.server");
+
+    const order = await fetchOrder(admin, shopifyOrderId);
+    if (!order) {
+      console.warn(`[ShopifyReturnRequest] Could not fetch order ${shopifyOrderId} for return ${returnRequestId} — skipping Shopify return request creation`);
+      return;
+    }
+
+    const returnItems = items.map((item) => ({
+      lineItemId: item.shopifyLineItemId,
+      quantity: item.quantity,
+      returnReason: item.returnReason,
+      customerNote: item.customerNote || undefined,
+    }));
+
+    const result = await createReturnRequestOnShopify(admin, order, returnItems);
+
+    if ("returnId" in result) {
+      await updateReturnRequestShopifyId(returnRequestId, shop, result.returnId);
+      console.info(`[ShopifyReturnRequest] Created Shopify return request ${result.returnId} for local return ${returnRequestId}`);
+    } else {
+      console.warn(`[ShopifyReturnRequest] Failed to create Shopify return request for ${returnRequestId}: ${result.error}`);
+    }
+  } catch (err) {
+    // Non-blocking — local return continues to work without Shopify visibility
+    console.error(`[ShopifyReturnRequest] Error creating Shopify return request for ${returnRequestId}:`, err);
   }
 }

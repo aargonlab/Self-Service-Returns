@@ -150,6 +150,51 @@ export const RETURN_CREATE_MUTATION = `#graphql
   }
 `;
 
+export const RETURN_REQUEST_MUTATION = `#graphql
+  mutation returnRequest($input: ReturnRequestInput!) {
+    returnRequest(input: $input) {
+      return {
+        id
+        status
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+export const RETURN_APPROVE_REQUEST_MUTATION = `#graphql
+  mutation returnApproveRequest($input: ReturnApproveRequestInput!) {
+    returnApproveRequest(input: $input) {
+      return {
+        id
+        status
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+export const RETURN_DECLINE_REQUEST_MUTATION = `#graphql
+  mutation returnDeclineRequest($input: ReturnDeclineRequestInput!) {
+    returnDeclineRequest(input: $input) {
+      return {
+        id
+        status
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
 export const SUGGESTED_REFUND_QUERY = `#graphql
   query suggestedRefund($id: ID!, $refundLineItems: [RefundLineItemInput!]!) {
     order(id: $id) {

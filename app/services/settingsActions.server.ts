@@ -457,6 +457,32 @@ export async function handleSaveSettings(formData: FormData, shop: string) {
   const webhookSecret = webhookSecretRaw ? encryptCredential(webhookSecretRaw) : null;
   const webhookActive = formData.get("webhookActive") === "true";
 
+  const webhookEventsRaw = formData.get("webhookEvents") as string;
+  let webhookEvents: string[] | undefined;
+  try {
+    if (webhookEventsRaw) {
+      const parsed = JSON.parse(webhookEventsRaw);
+      if (Array.isArray(parsed)) {
+        webhookEvents = parsed.filter((e: any) => typeof e === "string");
+      }
+    }
+  } catch (e) {
+    console.warn("[Settings] Failed to parse webhookEvents JSON:", e);
+  }
+
+  const webhookStatusFiltersRaw = formData.get("webhookStatusFilters") as string;
+  let webhookStatusFilters: string[] | undefined;
+  try {
+    if (webhookStatusFiltersRaw) {
+      const parsed = JSON.parse(webhookStatusFiltersRaw);
+      if (Array.isArray(parsed)) {
+        webhookStatusFilters = parsed.filter((s: any) => typeof s === "string");
+      }
+    }
+  } catch (e) {
+    console.warn("[Settings] Failed to parse webhookStatusFilters JSON:", e);
+  }
+
   const marketReturnWindowsRaw = formData.get("marketReturnWindows") as string;
   let marketReturnWindows = null;
   try {
@@ -510,6 +536,8 @@ export async function handleSaveSettings(formData: FormData, shop: string) {
     webhookUrl,
     webhookSecret,
     webhookActive,
+    webhookEvents,
+    webhookStatusFilters,
   });
 
   return json({ success: true, error: null });

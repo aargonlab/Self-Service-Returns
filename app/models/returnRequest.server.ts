@@ -68,6 +68,17 @@ export async function getReturnRequest(id: string, shop: string) {
           attachments: true,
         },
       },
+      shippingLabel: {
+        select: {
+          carrier: true,
+          carrierCode: true,
+          trackingNumber: true,
+          trackingUrl: true,
+          barcode: true,
+          status: true,
+          source: true,
+        },
+      },
       comments: {
         orderBy: { createdAt: "asc" },
       },
@@ -85,6 +96,17 @@ export async function getReturnRequestByShopifyId(shopifyReturnId: string, shop:
       items: {
         include: {
           attachments: true,
+        },
+      },
+      shippingLabel: {
+        select: {
+          carrier: true,
+          carrierCode: true,
+          trackingNumber: true,
+          trackingUrl: true,
+          barcode: true,
+          status: true,
+          source: true,
         },
       },
       comments: {

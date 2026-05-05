@@ -318,6 +318,158 @@ export async function getShippingLabel(returnRequestId: string, shop: string) {
 }
 
 /**
+ * Upload a manual shipping label (PDF/image) with tracking info.
+ * Used when ProcessWeaver is unavailable and the merchant has a label file.
+ */
+export async function uploadManualLabel(params: {
+  returnRequestId: string;
+  shop: string;
+  carrier: string;
+  trackingNumber: string;
+  trackingUrl?: string;
+  labelFileBase64: string;
+  labelContentType: string;
+  labelFileName: string;
+}): Promise<{
+  id: string;
+  trackingNumber: string;
+  trackingUrl: string;
+  carrier: string;
+  labelUrl: string;
+}> {
+  // Validate required fields
+  if (!params.carrier?.trim()) throw new Error("Carrier name is required");
+  if (!params.trackingNumber?.trim()) throw new Error("Tracking number is required");
+  if (!params.labelFileBase64) throw new Error("Label file is required");
+
+  // Validate file type
+  const allowedTypes = ["application/pdf", "image/png", "image/jpeg", "image/jpg"];
+  if (!allowedTypes.includes(params.labelContentType)) {
+    throw new Error("Invalid file type. Allowed: PDF, PNG, JPG");
+  }
+
+  // Validate file size (10MB max)
+  const fileSizeBytes = Buffer.from(params.labelFileBase64, "base64").length;
+  if (fileSizeBytes > 10 * 1024 * 1024) {
+    throw new Error("File too large. Maximum size is 10MB");
+  }
+
+  // Verify ownership
+  const returnRequest = await prisma.returnRequest.findFirst({
+    where: { id: params.returnRequestId, shop: params.shop },
+  });
+  if (!returnRequest) throw new Error("Return request not found");
+
+  // Build label URL as data URI
+  const labelUrl = `data:${params.labelContentType};base64,${params.labelFileBase64}`;
+
+  // Upsert — replace existing label or create new
+  const label = await prisma.returnShippingLabel.upsert({
+    where: { returnRequestId: params.returnRequestId },
+    update: {
+      carrier: params.carrier.trim(),
+      trackingNumber: params.trackingNumber.trim(),
+      trackingUrl: params.trackingUrl?.trim() || null,
+      labelUrl,
+      labelData: params.labelFileBase64,
+      source: "MANUAL",
+      status: "CREATED",
+    },
+    create: {
+      returnRequestId: params.returnRequestId,
+      carrier: params.carrier.trim(),
+      trackingNumber: params.trackingNumber.trim(),
+      trackingUrl: params.trackingUrl?.trim() || null,
+      labelUrl,
+      labelData: params.labelFileBase64,
+      barcode: params.trackingNumber.trim(),
+      source: "MANUAL",
+      status: "CREATED",
+      warehouseAddress: {},
+      customerAddress: {},
+    },
+  });
+
+  // Add timeline event
+  const { addTimelineEvent } = await import("~/models/returnTimeline.server");
+  await addTimelineEvent({
+    returnRequestId: params.returnRequestId,
+    event: `Shipping label uploaded manually (${params.carrier.trim()}, ${params.trackingNumber.trim()})`,
+    actor: "Admin",
+    actorType: "AGENT",
+    shop: params.shop,
+  });
+
+  // Auto-transition to AWAITING_SHIPMENT if the return is currently APPROVED
+  if (returnRequest.status === "APPROVED") {
+    const { transitionStatus } = await import("~/services/stateMachine.server");
+    try {
+      await transitionStatus(params.returnRequestId, "AWAITING_SHIPMENT", {
+        name: "System",
+        type: "SYSTEM",
+      }, undefined, params.shop);
+    } catch (err) {
+      console.error("Failed to transition to AWAITING_SHIPMENT after label upload:", err);
+    }
+  }
+
+  return {
+    id: label.id,
+    trackingNumber: label.trackingNumber,
+    trackingUrl: label.trackingUrl || "",
+    carrier: label.carrier,
+    labelUrl: label.labelUrl,
+  };
+}
+
+/**
+ * Update tracking info on an existing manual label.
+ * Allows updating carrier, tracking number, tracking URL without re-uploading the file.
+ */
+export async function updateManualLabel(params: {
+  returnRequestId: string;
+  shop: string;
+  carrier?: string;
+  trackingNumber?: string;
+  trackingUrl?: string;
+}): Promise<{ success: boolean }> {
+  const label = await prisma.returnShippingLabel.findFirst({
+    where: {
+      returnRequestId: params.returnRequestId,
+      returnRequest: { shop: params.shop },
+    },
+  });
+  if (!label) throw new Error("No shipping label found for this return");
+
+  const updateData: Record<string, string | null> = {};
+  if (params.carrier?.trim()) updateData.carrier = params.carrier.trim();
+  if (params.trackingNumber?.trim()) updateData.trackingNumber = params.trackingNumber.trim();
+  if (params.trackingUrl !== undefined) updateData.trackingUrl = params.trackingUrl?.trim() || null;
+
+  if (Object.keys(updateData).length === 0) {
+    return { success: true }; // Nothing to update
+  }
+
+  await prisma.returnShippingLabel.update({
+    where: { id: label.id },
+    data: updateData,
+  });
+
+  // Add timeline event
+  const { addTimelineEvent } = await import("~/models/returnTimeline.server");
+  const changes = Object.keys(updateData).join(", ");
+  await addTimelineEvent({
+    returnRequestId: params.returnRequestId,
+    event: `Shipping label tracking info updated (${changes})`,
+    actor: "Admin",
+    actorType: "AGENT",
+    shop: params.shop,
+  });
+
+  return { success: true };
+}
+
+/**
  * Track a shipment using ProcessWeaver Track API.
  * Updates the shipping label record with the latest tracking events.
  */

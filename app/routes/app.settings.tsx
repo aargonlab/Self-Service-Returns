@@ -199,6 +199,55 @@ export default function Settings() {
   const [webhookSecret, setWebhookSecret] = useState(settings.webhookSecret || "");
   const [webhookActive, setWebhookActive] = useState(settings.webhookActive ?? false);
 
+  const ALL_WEBHOOK_EVENTS = [
+    { value: "return.submitted", label: "Return Submitted" },
+    { value: "return.approved", label: "Return Approved" },
+    { value: "return.rejected", label: "Return Rejected" },
+    { value: "return.cancelled", label: "Return Cancelled" },
+    { value: "return.status_changed", label: "Status Changed" },
+    { value: "refund.processed", label: "Refund Processed" },
+    { value: "replacement.processed", label: "Replacement Processed" },
+    { value: "disclaimer.accepted", label: "Disclaimer Accepted" },
+  ] as const;
+
+  const defaultEvents = ALL_WEBHOOK_EVENTS.map(e => e.value);
+  const initialWebhookEvents = Array.isArray(settings.webhookEvents)
+    ? settings.webhookEvents as string[]
+    : defaultEvents;
+  const [webhookEvents, setWebhookEvents] = useState<string[]>(initialWebhookEvents);
+
+  const toggleWebhookEvent = useCallback((event: string) => {
+    setWebhookEvents(prev =>
+      prev.includes(event)
+        ? prev.filter(e => e !== event)
+        : [...prev, event]
+    );
+  }, []);
+
+  const ALL_RETURN_STATUSES = [
+    { value: "AWAITING_SHIPMENT", label: "Awaiting Shipment" },
+    { value: "IN_TRANSIT", label: "In Transit" },
+    { value: "RECEIVED", label: "Received" },
+    { value: "PARTIALLY_ACCEPTED", label: "Partially Accepted" },
+    { value: "REFUNDED", label: "Refunded" },
+    { value: "EXCHANGED", label: "Replaced" },
+    { value: "CLOSED", label: "Closed" },
+    { value: "CANCELLED", label: "Cancelled" },
+  ] as const;
+
+  const initialStatusFilters = Array.isArray(settings.webhookStatusFilters)
+    ? settings.webhookStatusFilters as string[]
+    : [];
+  const [webhookStatusFilters, setWebhookStatusFilters] = useState<string[]>(initialStatusFilters);
+
+  const toggleStatusFilter = useCallback((status: string) => {
+    setWebhookStatusFilters(prev =>
+      prev.includes(status)
+        ? prev.filter(s => s !== status)
+        : [...prev, status]
+    );
+  }, []);
+
   // Market return windows state
   const [marketReturnWindows, setMarketReturnWindows] = useState<Array<{ marketId: string; marketName: string; returnWindowDays: number }>>(
     initialMarketReturnWindows
@@ -303,6 +352,8 @@ export default function Settings() {
     webhookUrl !== (settings.webhookUrl || "") ||
     webhookSecret !== (settings.webhookSecret || "") ||
     webhookActive !== (settings.webhookActive ?? false) ||
+    JSON.stringify(webhookEvents) !== JSON.stringify(initialWebhookEvents) ||
+    JSON.stringify(webhookStatusFilters) !== JSON.stringify(initialStatusFilters) ||
     JSON.stringify(marketReturnWindows) !== JSON.stringify(initialMarketReturnWindows);
 
   // Capture newly created API key from fetcher response
@@ -518,6 +569,8 @@ export default function Settings() {
           <input type="hidden" name="webhookUrl" value={webhookUrl} />
           <input type="hidden" name="webhookSecret" value={webhookSecret} />
           <input type="hidden" name="webhookActive" value={String(webhookActive)} />
+          <input type="hidden" name="webhookEvents" value={JSON.stringify(webhookEvents)} />
+          <input type="hidden" name="webhookStatusFilters" value={JSON.stringify(webhookStatusFilters)} />
 
           {/* Tab 0: General */}
           {selectedTab === 0 && (
@@ -1959,12 +2012,49 @@ export default function Settings() {
                     autoComplete="off"
                     disabled={!webhookActive}
                   />
-                  {webhookActive && webhookUrl && (
-                    <Banner tone="info">
-                      <p>
-                        Webhook events: return.submitted, return.approved, return.rejected, return.cancelled, return.status_changed, refund.processed, replacement.processed, disclaimer.accepted
-                      </p>
-                    </Banner>
+                  {webhookActive && (
+                    <BlockStack gap="200">
+                      <Text as="span" variant="bodyMd" fontWeight="semibold">Webhook Events</Text>
+                      <Text as="span" variant="bodySm" tone="subdued">
+                        Select which events trigger webhook notifications. Uncheck events you don't need.
+                      </Text>
+                      {ALL_WEBHOOK_EVENTS.map(evt => (
+                        <div key={evt.value}>
+                          <Checkbox
+                            label={`${evt.label} (${evt.value})`}
+                            checked={webhookEvents.includes(evt.value)}
+                            onChange={() => toggleWebhookEvent(evt.value)}
+                          />
+                          {evt.value === "return.status_changed" && webhookEvents.includes("return.status_changed") && (
+                            <Box paddingInlineStart="800" paddingBlockStart="200" paddingBlockEnd="100">
+                              <BlockStack gap="100">
+                                <Text as="span" variant="bodySm" tone="subdued">
+                                  Fire only for these statuses {webhookStatusFilters.length === 0 ? "(all)" : `(${webhookStatusFilters.length} selected)`}:
+                                </Text>
+                                {ALL_RETURN_STATUSES.map(st => (
+                                  <Checkbox
+                                    key={st.value}
+                                    label={st.label}
+                                    checked={webhookStatusFilters.includes(st.value)}
+                                    onChange={() => toggleStatusFilter(st.value)}
+                                  />
+                                ))}
+                                {webhookStatusFilters.length === 0 && (
+                                  <Text as="span" variant="bodySm" tone="subdued">
+                                    No filter applied — fires for all status transitions.
+                                  </Text>
+                                )}
+                              </BlockStack>
+                            </Box>
+                          )}
+                        </div>
+                      ))}
+                      {webhookEvents.length === 0 && (
+                        <Banner tone="warning">
+                          <p>No events selected. Webhooks will not fire until at least one event is enabled.</p>
+                        </Banner>
+                      )}
+                    </BlockStack>
                   )}
                   {webhookActive && webhookUrl && (
                     <InlineStack align="start">

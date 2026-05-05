@@ -153,6 +153,8 @@ model ReturnSettings {
   webhookUrl          String?                       // Outbound webhook URL for external integrations
   webhookSecret       String?                       // Shared secret for HMAC-SHA256 signature
   webhookActive       Boolean  @default(false)      // Kill switch for webhook delivery
+  webhookEvents       Json     @default("[\"return.submitted\",\"return.approved\",\"return.rejected\",\"return.cancelled\",\"return.status_changed\",\"refund.processed\",\"replacement.processed\",\"disclaimer.accepted\"]") // Array of enabled webhook event names
+  webhookStatusFilters Json    @default("[]") // Array of ReturnStatus values that trigger return.status_changed webhook. Empty = all statuses.
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }
