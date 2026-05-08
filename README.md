@@ -1,355 +1,384 @@
-# Self Service Return
+# Self-Service Return
 
-**A self-service returns management platform for Shopify merchants**
+**A self-service returns management platform for Shopify merchants.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
-[![Shopify](https://img.shields.io/badge/Shopify-Embedded%20App-green)](https://shopify.dev)
+[![Shopify API](https://img.shields.io/badge/Shopify%20Admin%20API-2026--04-green)](https://shopify.dev/docs/api/usage/versioning)
+[![Node](https://img.shields.io/badge/Node-%E2%89%A520.10-brightgreen)](https://nodejs.org)
 [![Made by aargonlab](https://img.shields.io/badge/Made%20by-aargonlab-orange)](https://www.aargonlab.com)
 
-A complete, open-source returns management solution that empowers Shopify merchants with branded customer portals, intelligent policy automation, and comprehensive backoffice tools for managing returns, refunds, and exchanges.
+A complete, open-source returns management solution that gives Shopify merchants a branded customer portal, configurable policy automation, and a backoffice for managing returns, refunds, and exchanges.
 
-Created and maintained by [aargonlab](https://www.aargonlab.com).
+Built on Remix + Shopify App Bridge + Polaris, with PostgreSQL via Prisma.
+
+---
+
+## Table of contents
+
+- [Features](#features)
+- [Tech stack](#tech-stack)
+- [Prerequisites](#prerequisites)
+- [Quick start (local development)](#quick-start-local-development)
+- [Configuration](#configuration)
+  - [Environment variables](#environment-variables)
+  - [Shopify scopes](#shopify-scopes)
+  - [Shopify app config](#shopify-app-config)
+- [Available scripts](#available-scripts)
+- [Production build](#production-build)
+- [Docker](#docker)
+- [Deploying to Fly.io](#deploying-to-flyio)
+- [Architecture](#architecture)
+- [API reference](#api-reference)
+- [Return state machine](#return-state-machine)
+- [Internationalization](#internationalization)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
 ## Features
 
-### Customer Experience
-- **Branded Self-Service Portal**: Mobile-responsive return portal with customizable branding (logo, colors, fonts)
-- **Multi-language Support**: 27 languages supported out of the box
-- **Order Lookup**: Search by order number + email, or authenticate with customer account
-- **Smart Eligibility Check**: Real-time validation of return windows and policy compliance
-- **Serial Number Tracking**: Optional serial number selection for ERP-integrated workflows
-- **Attachment Support**: Customers can upload images for item condition documentation
-- **Real-time Status Updates**: Track return progress from submission to refund
+### Customer experience
+- Branded, mobile-responsive self-service portal with customizable logo, colors, and fonts.
+- 27 languages out of the box, with per-shop translation overrides.
+- Order lookup by order number + email, or via the Shopify customer account.
+- Real-time eligibility checks against return windows and policy rules.
+- Optional serial-number selection for ERP-integrated workflows.
+- Image attachments for item-condition documentation.
+- Status tracking from submission through refund.
 
-### Merchant Management
-- **Embedded Shopify Admin**: Seamless Polaris-based interface within Shopify Admin
-- **Policy Engine**: Configurable rules for auto-approval, auto-rejection, and manual review triggers
-- **State Machine**: Structured return lifecycle management with 12 distinct states
-- **Return Routing**: Multi-warehouse support with market-based routing rules
-- **Shipping Label Generation**: Optional integration with ProcessWeaver for automated label creation
-- **Exchange Management**: Create replacement orders directly from return requests
-- **Refund OTP Verification**: Secure agent-initiated refunds with email verification
-- **Custom Return Reasons**: Define reason codes with market-specific visibility
-- **Timeline & Audit Trail**: Complete history of all actions and state transitions
+### Merchant management
+- Embedded admin app built with Polaris 13 and App Bridge 4.
+- Policy engine with auto-approval, auto-rejection, and manual-review triggers.
+- Structured 12-state return lifecycle.
+- Multi-warehouse routing with market-aware rules.
+- Optional automated label generation through ProcessWeaver (FedEx, UPS, DHL, Canada Post, …).
+- Exchange / replacement order creation directly from a return.
+- Agent-initiated refunds protected by email OTP.
+- Custom return reasons with per-market visibility.
+- Full timeline and audit trail per return.
 
 ### Integrations & API
-- **REST API v1**: Full CRUD operations for external systems
-- **Webhook System**: HMAC-SHA256 signed webhooks for real-time event notifications
-- **Shopify Sync**: Bidirectional sync with Shopify Orders and Returns API
-- **ProcessWeaver Integration**: Carrier-agnostic shipping label generation (FedEx, UPS, DHL, Canada Post, etc.)
-- **Email Notifications**: Transactional emails via Resend (confirmation, approval, rejection, refund)
+- REST API at `/api/v1/*` with API-key auth.
+- HMAC-SHA256 signed outbound webhooks.
+- Bidirectional sync with Shopify Orders + Returns.
+- Transactional emails via [Resend](https://resend.com).
 
-### Security & Compliance
-- **AES-256-GCM Encryption**: Secure credential storage for carrier accounts and API keys
-- **GDPR-Compliant**: Data retention controls and audit logging
-- **HMAC Webhooks**: Cryptographically signed outbound webhooks
-- **Role-Based Access Control**: Shop-scoped data isolation and session management
+### Security & compliance
+- AES-256-GCM at-rest encryption for stored carrier credentials.
+- HMAC-signed outbound webhooks.
+- Shop-scoped data isolation.
+- Audit logging on all state transitions.
 
 ---
 
-## Screenshots
+## Tech stack
 
-*Screenshots coming soon*
+| Layer | Choice |
+|---|---|
+| Framework | [Remix](https://remix.run/) 2 (Vite) |
+| Admin UI | [Shopify Polaris](https://polaris.shopify.com/) 13 + [App Bridge](https://shopify.dev/docs/api/app-bridge-library) 4 |
+| Portal UI | Tailwind CSS 3 |
+| Shopify SDK | `@shopify/shopify-app-remix` 4.2 (Admin API **2026-04**) |
+| Database | PostgreSQL 13+ via [Prisma](https://www.prisma.io/) 6 |
+| Email | [Resend](https://resend.com) |
+| Validation | [Zod](https://zod.dev/) |
+| Language | TypeScript 5 |
 
 ---
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
+- **Node.js** ≥ 20.10 (an `.nvmrc` is included — `nvm use` to pick it up).
+- **PostgreSQL** ≥ 13 — locally or via the bundled `docker-compose.yml`.
+- A **Shopify Partner account** ([create one](https://partners.shopify.com/)) and a development store.
+- A **Resend** account for transactional email ([sign up](https://resend.com)).
 
-- **Node.js**: 18+ or 20+ (recommended)
-- **PostgreSQL**: 13+ (or Docker container)
-- **Shopify Partner Account**: [Create one here](https://partners.shopify.com/)
-- **Shopify CLI**: Install via `npm install -g @shopify/cli`
+The Shopify CLI is bundled as a devDependency, so you do **not** need to install it globally.
 
 ---
 
-## Quick Start
-
-### 1. Clone the Repository
+## Quick start (local development)
 
 ```bash
-git clone https://github.com/your-org/self-service-return.git
+# 1. Clone
+git clone https://github.com/aargonlab/self-service-return.git
 cd self-service-return
-```
 
-### 2. Install Dependencies
-
-```bash
+# 2. Install dependencies (also installs the Shopify CLI locally)
 npm install
-```
 
-### 3. Configure Environment Variables
-
-Copy `.env.example` to `.env` and configure the following:
-
-```bash
+# 3. Configure environment
 cp .env.example .env
-```
+# then edit .env — see "Environment variables" below
 
-See the [Configuration](#configuration) section for detailed descriptions of all environment variables.
+# 4. Start PostgreSQL (skip if you already have one running)
+docker compose up -d
 
-### 4. Database Setup
+# 5. Generate the Prisma client and apply migrations
+npm run setup
 
-Run Prisma migrations to set up your PostgreSQL database:
+# 6. Link this repo to a Shopify app in your Partner Dashboard
+#    (creates a shopify.app.<handle>.toml from your Partner config)
+npm run config:link
 
-```bash
-npx prisma migrate deploy
-npx prisma generate
-```
-
-### 5. Create a Shopify App
-
-Use the Shopify CLI to configure your app:
-
-```bash
-npm run shopify app config link
-```
-
-Follow the prompts to connect your Partner account and create a new app (or link to an existing one).
-
-### 6. Start Development Server
-
-```bash
+# 7. Start the dev server (Shopify CLI tunnels and opens the dev store)
 npm run dev
 ```
 
-This will:
-- Start the Remix dev server
-- Tunnel the app via Shopify CLI
-- Open the app in your development store
+`npm run dev` will:
+- launch the Remix dev server,
+- tunnel it through the Shopify CLI,
+- install / update the app on your development store,
+- open the embedded admin in your browser.
 
 ---
 
 ## Configuration
 
-### Environment Variables
+### Environment variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DATABASE_URL` | PostgreSQL connection string (e.g., `postgresql://user:pass@localhost:5432/dbname`) | Yes |
-| `SHOPIFY_API_KEY` | Your Shopify app's API key from Partner Dashboard | Yes |
-| `SHOPIFY_API_SECRET` | Your Shopify app's API secret | Yes |
-| `SCOPES` | Comma-separated Shopify API scopes (see recommended scopes below) | Yes |
-| `APP_URL` | Public URL where your app is hosted (e.g., `https://returns.yourshop.com`) | Yes |
-| `SHOPIFY_APP_URL` | Shopify app URL (same as APP_URL for most deployments) | Yes |
-| `RESEND_API_KEY` | API key from [Resend](https://resend.com) for email notifications | Yes |
-| `EMAIL_FROM` | Sender email address (must be verified in Resend) | Yes |
-| `CREDENTIALS_ENCRYPTION_KEY` | 32-byte hex string for AES-256 encryption of stored credentials | Yes |
-| `SESSION_SECRET` | Secret for signing session cookies (32+ random characters) | Yes |
-| `OTP_HASH_SECRET` | HMAC secret for OTP hashing (falls back to SESSION_SECRET if not set) | No |
-| `ENCRYPTION_SALT` | Custom salt for key derivation (optional, auto-generated if not provided) | No |
+Copy `.env.example` to `.env` and fill in the values.
 
-### Recommended Shopify Scopes
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | yes | PostgreSQL connection string. |
+| `SHOPIFY_API_KEY` | yes | Client ID from the Shopify Partner Dashboard. |
+| `SHOPIFY_API_SECRET` | yes | Client secret from the Partner Dashboard. |
+| `SHOPIFY_APP_URL` | yes | Public URL where the app is hosted (the Shopify CLI sets this automatically in `dev`). |
+| `APP_URL` | yes | Same as `SHOPIFY_APP_URL` for most deployments. Used for portal and email links. |
+| `SCOPES` | yes | Comma-separated OAuth scopes (must match `shopify.app.toml`). |
+| `RESEND_API_KEY` | yes | API key from [Resend](https://resend.com). |
+| `EMAIL_FROM` | yes | Verified sender address for transactional email. |
+| `CREDENTIALS_ENCRYPTION_KEY` | yes | 32-byte hex string (`openssl rand -hex 32`). Used for AES-256-GCM. |
+| `SESSION_SECRET` | yes | 32+ char random string. |
+| `OTP_HASH_SECRET` | no | HMAC secret for OTP hashing. Falls back to `SESSION_SECRET`. |
+| `ENCRYPTION_SALT` | no | Custom salt for credential key derivation. |
+
+> Generate a strong secret quickly with `openssl rand -hex 32`.
+
+### Shopify scopes
+
+The default recommended scopes:
 
 ```
 read_orders,write_orders,read_customers,read_returns,write_returns,read_products,read_markets,write_draft_orders,read_merchant_managed_fulfillment_orders,read_third_party_fulfillment_orders
 ```
 
+`app/shopify.server.ts` validates these at startup and warns on unknown scopes.
+
+### Shopify app config
+
+`shopify.app.toml.example` is included as a reference. The recommended path is to let the Shopify CLI generate the real file for you:
+
+```bash
+npm run config:link    # creates shopify.app.<handle>.toml
+npm run config:use     # switches between linked configs (multi-environment)
+```
+
+The generated `shopify.app.<handle>.toml` is gitignored — each developer / environment has its own.
+
+The Admin API version is pinned in `app/shopify.server.ts` and `vite.config.ts`. Update both files if you bump it.
+
+---
+
+## Available scripts
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start Remix + Shopify CLI tunnel against your dev store. |
+| `npm run build` | Production build (Remix + Vite). |
+| `npm start` | Serve the production build (`remix-serve`). |
+| `npm run setup` | `prisma generate` + `prisma migrate deploy`. |
+| `npm run typecheck` | Run `tsc --noEmit`. |
+| `npm run lint` | ESLint with cache. |
+| `npm run config:link` | Link this repo to an app in your Shopify Partner Dashboard. |
+| `npm run config:use` | Switch the active linked config. |
+| `npm run deploy` | `shopify app deploy` — push extensions / config to the Partner Dashboard. |
+| `npm run env` | Inspect / pull env values from the linked Shopify app. |
+| `npm run generate` | Scaffold a new Shopify extension via the CLI. |
+| `npm run docker-start` | `setup` then `start` — used as the Docker entrypoint. |
+
+---
+
+## Production build
+
+```bash
+npm install
+npm run setup        # prisma generate + migrate deploy
+npm run build
+npm start            # serves on $PORT (default 3000)
+```
+
+The build output lives in `build/` and contains both the server and client bundles.
+
+---
+
+## Docker
+
+A multi-stage `Dockerfile` and a `docker-compose.yml` (Postgres only) are included.
+
+```bash
+# Run a local Postgres for development
+docker compose up -d
+
+# Build and run the app image
+docker build -t self-service-return .
+docker run --rm -p 3000:3000 --env-file .env self-service-return
+```
+
+The container's `CMD` runs `npm run docker-start` which executes Prisma migrations before starting the server.
+
+---
+
+## Deploying to Fly.io
+
+A `fly.toml` is included. Typical first deploy:
+
+```bash
+flyctl launch --copy-config --no-deploy
+flyctl postgres create               # or attach an external Postgres
+flyctl secrets set \
+  SHOPIFY_API_KEY=... \
+  SHOPIFY_API_SECRET=... \
+  SHOPIFY_APP_URL=https://<your-app>.fly.dev \
+  APP_URL=https://<your-app>.fly.dev \
+  SCOPES="read_orders,write_orders,read_customers,read_returns,write_returns,read_products,read_markets,write_draft_orders,read_merchant_managed_fulfillment_orders,read_third_party_fulfillment_orders" \
+  RESEND_API_KEY=... \
+  EMAIL_FROM=returns@yourdomain.com \
+  CREDENTIALS_ENCRYPTION_KEY=$(openssl rand -hex 32) \
+  SESSION_SECRET=$(openssl rand -hex 32)
+flyctl deploy
+```
+
+Then update the `application_url` and redirect URLs in your Shopify Partner Dashboard (or in `shopify.app.<handle>.toml` and `npm run deploy`) to point at the Fly URL.
+
 ---
 
 ## Architecture
 
-This application is built with a clean, layered architecture:
+```
+app/
+├── routes/
+│   ├── app.*           Embedded Shopify admin (Polaris + App Bridge)
+│   ├── returns.*       Public customer portal (Tailwind)
+│   ├── api.v1.*        REST API for external integrations
+│   └── webhooks.tsx    Shopify webhook handler
+├── services/           Business logic — state machine, policies, email, shipping, …
+├── models/             Prisma data access
+├── components/         UI (admin + portal)
+├── utils/              Validators, constants, encryption, translations
+└── shopify.server.ts   Shopify app + Admin API wiring
+```
 
-### Application Layer (`app/routes/`)
-- **Admin Routes (`app.*`)**: Embedded Shopify app built with Polaris 13 and App Bridge
-  - Dashboard, returns management, policy configuration, settings
-- **Customer Portal (`returns.*`)**: Public-facing portal built with Tailwind CSS
-  - Order lookup, return submission, status tracking
-- **API Routes (`api.v1.*`)**: RESTful API for external integrations
-  - Supports API key authentication and scoped access
-- **Webhooks (`webhooks.tsx`)**: Shopify webhook handler for order and return events
-
-### Business Logic Layer (`app/services/`)
-- **State Machine**: Orchestrates return lifecycle state transitions
-- **Policy Engine**: Evaluates eligibility rules and automation conditions
-- **Email Service**: Transactional email delivery via Resend
-- **Shipping Service**: ProcessWeaver integration for label generation and tracking
-- **Encryption Service**: AES-256-GCM credential encryption/decryption
-
-### Data Access Layer (`app/models/`)
-- Prisma-based data access with transaction support
-- Models for returns, items, policies, settings, webhooks, shipping labels, serial numbers
-
-### UI Components (`app/components/`)
-- **Admin Components**: Shopify Polaris UI components
-- **Portal Components**: Tailwind CSS components for customer portal
-
-### Utilities (`app/utils/`)
-- Validators (Zod schemas for API requests)
-- Constants (status definitions, reason codes)
-- Encryption utilities
-- Translation system (27 languages)
+### Highlights
+- **State machine** (`services/stateMachine.server.ts`) orchestrates the 12-state return lifecycle.
+- **Policy engine** (`services/policyEngine.server.ts`) evaluates per-shop rules to drive auto-approval / rejection.
+- **Encryption** (`utils/encryption.server.ts`) wraps Node's `crypto` for AES-256-GCM.
+- **Webhooks** are signed with HMAC-SHA256 (see `services/webhook.server.ts`).
 
 ---
 
-## API Documentation
+## API reference
 
-The app exposes a REST API at `/api/v1/*` for external integrations. Key endpoints include:
+All endpoints live under `/api/v1` and require an `X-API-Key` header. Generate keys from the embedded admin → Settings → API.
 
-- `GET /api/v1/returns` — List returns with filtering and pagination
-- `POST /api/v1/returns` — Create a new return request
-- `GET /api/v1/returns/:id` — Retrieve a single return
-- `PATCH /api/v1/returns/:id` — Update return details
-- `POST /api/v1/returns/:id/actions` — Perform actions (approve, reject, close, cancel)
-- `POST /api/v1/returns/:id/comments` — Add comments
-- `GET /api/v1/returns/:id/timeline` — Retrieve timeline events
-- `POST /api/v1/returns/:id/label` — Generate shipping label
-- `GET /api/v1/settings` — Retrieve shop settings
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/returns` | List returns (filtering + pagination). |
+| `POST` | `/api/v1/returns` | Create a return request. |
+| `GET` | `/api/v1/returns/:id` | Fetch one return. |
+| `PATCH` | `/api/v1/returns/:id` | Update return details. |
+| `POST` | `/api/v1/returns/:id/actions` | Approve / reject / close / cancel. |
+| `POST` | `/api/v1/returns/:id/comments` | Add a comment. |
+| `GET` | `/api/v1/returns/:id/timeline` | Fetch timeline events. |
+| `POST` | `/api/v1/returns/:id/label` | Generate a shipping label. |
+| `GET` | `/api/v1/settings` | Fetch shop settings. |
 
-### Authentication
-
-API requests require an API key passed in the `X-API-Key` header. API keys can be generated from the admin settings panel.
-
-### Full API Documentation
-
-Interactive API documentation is available at `/app/api-docs` after installing the app in your Shopify store.
+Interactive docs are also exposed inside the embedded admin at `/app/api-docs`.
 
 ---
 
-## Return Status Flow
-
-Returns follow a structured state machine with the following primary flow:
+## Return state machine
 
 ```
 SUBMITTED
-    |
-    v
-PENDING_REVIEW ──────┐
-    |                │
-    v                │ (auto-reject)
-APPROVED             │
-    |                │
-    v                │
-AWAITING_SHIPMENT    │
-    |                │
-    v                │
-IN_TRANSIT           │
-    |                │
-    v                │
-RECEIVED             │
-    |                │
-    v                │
-REFUNDED ────────────┤
-    |                │
-    v                │
-CLOSED <─────────────┘
-    ^
-    |
-REJECTED
-    |
-    v
-CLOSED
+    │
+    ▼
+PENDING_REVIEW ──► REJECTED ──► CLOSED
+    │
+    ▼
+APPROVED
+    │
+    ▼
+AWAITING_SHIPMENT
+    │
+    ▼
+IN_TRANSIT
+    │
+    ▼
+RECEIVED
+    │
+    ▼
+REFUNDED ──► CLOSED
 
-(Any non-terminal state can transition to CANCELLED)
+(any non-terminal state can transition to CANCELLED)
 ```
 
-### State Definitions
-
-- **SUBMITTED**: Initial state when customer submits return
-- **PENDING_REVIEW**: Awaiting merchant approval (manual or automated)
-- **APPROVED**: Merchant approved; awaiting customer to ship items back
-- **REJECTED**: Merchant rejected the return
-- **AWAITING_SHIPMENT**: Label generated; customer has not shipped yet
-- **IN_TRANSIT**: Items are in transit back to merchant
-- **RECEIVED**: Merchant received the returned items
-- **REFUNDED**: Refund has been processed
-- **CLOSED**: Return is finalized (terminal state)
-- **CANCELLED**: Customer or system cancelled the return (terminal state)
+| State | Meaning |
+|---|---|
+| `SUBMITTED` | Customer just submitted the request. |
+| `PENDING_REVIEW` | Awaiting merchant decision. |
+| `APPROVED` | Awaiting shipment from customer. |
+| `REJECTED` | Merchant rejected the return. |
+| `AWAITING_SHIPMENT` | Label generated; not yet shipped. |
+| `IN_TRANSIT` | Package on its way back. |
+| `RECEIVED` | Items received by merchant. |
+| `REFUNDED` | Refund processed. |
+| `CLOSED` / `CANCELLED` | Terminal states. |
 
 ---
 
 ## Internationalization
 
-The customer portal supports 27 languages with automatic locale detection:
+The customer portal ships with 27 locales. Translations are stored per shop in the `PortalTranslation` model and can be overridden from the embedded admin (Settings → Translations).
 
-**Supported Languages**: English, Spanish, French, German, Italian, Portuguese, Dutch, Polish, Swedish, Danish, Norwegian, Finnish, Czech, Hungarian, Romanian, Bulgarian, Croatian, Slovak, Slovenian, Lithuanian, Latvian, Estonian, Greek, Turkish, Japanese, Korean, Chinese (Simplified)
-
-Translations are managed via the `PortalTranslation` model and can be customized per shop through the admin panel.
+Supported out of the box: English, Spanish, French, German, Italian, Portuguese, Dutch, Polish, Swedish, Danish, Norwegian, Finnish, Czech, Hungarian, Romanian, Bulgarian, Croatian, Slovak, Slovenian, Lithuanian, Latvian, Estonian, Greek, Turkish, Japanese, Korean, Chinese (Simplified).
 
 ---
 
 ## Security
 
-### Credential Encryption
-All sensitive data (ProcessWeaver API keys, carrier passwords) is encrypted at rest using AES-256-GCM before storage in the database. The encryption key is derived from `CREDENTIALS_ENCRYPTION_KEY` with optional custom salting.
+- **Credential encryption:** `CREDENTIALS_ENCRYPTION_KEY` is used with AES-256-GCM to encrypt carrier credentials and API keys at rest.
+- **Webhook signatures:** outbound webhooks include `X-Webhook-Signature: HMAC-SHA256(secret, body)`.
+- **Sessions:** stored in PostgreSQL via `@shopify/shopify-app-session-storage-prisma` with refresh-token rotation.
+- **OTPs:** agent-initiated refunds are gated behind a hashed OTP delivered via email.
 
-### Webhook Security
-Outbound webhooks include an `X-Webhook-Signature` header with HMAC-SHA256 signature for verification:
-
-```
-HMAC-SHA256(webhook_secret, request_body)
-```
-
-### GDPR Compliance
-- Customer PII is scoped to shop-level data
-- Audit trail for all data access and modifications
-- Data retention policies configurable per shop
-- Export and deletion capabilities via API
-
-### Session Management
-Sessions are stored in PostgreSQL with automatic expiration. Shopify App OAuth tokens are securely stored with refresh token rotation support.
+To report a security vulnerability privately, please open a draft security advisory on GitHub instead of a public issue.
 
 ---
 
 ## Contributing
 
-We welcome contributions from the community! Here's how you can help:
+1. Fork the repo and create a feature branch (`git checkout -b feat/my-thing`).
+2. Run `npm install` and `npm run setup`.
+3. Make your changes — keep them focused.
+4. Verify before pushing:
+   ```bash
+   npm run typecheck
+   npm run lint
+   npm run build
+   ```
+5. Open a PR with a clear description and rationale.
 
-### Reporting Issues
-- Use [GitHub Issues](https://github.com/your-org/self-service-return/issues) to report bugs or request features
-- Provide detailed reproduction steps for bugs
-- Include screenshots, logs, or error messages when applicable
-
-### Submitting Pull Requests
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-new-feature`
-3. Make your changes following the code style
-4. Add tests if applicable
-5. Ensure all tests pass: `npm run lint`
-6. Commit with clear messages: `git commit -m "feat: add new feature"`
-7. Push to your fork: `git push origin feature/my-new-feature`
-8. Open a Pull Request with a detailed description
-
-### Development Guidelines
-- Follow TypeScript strict mode conventions
-- Use Prettier for code formatting
-- Add JSDoc comments for public APIs
-- Update documentation for user-facing changes
-- Keep commits atomic and well-described
-
-### Code of Conduct
-Be respectful, inclusive, and professional. We're building a welcoming community for all contributors.
+Issues and feature requests are welcome on the [GitHub issue tracker](https://github.com/aargonlab/self-service-return/issues).
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+MIT — see [LICENSE](LICENSE).
 
-Copyright (c) 2026 [aargonlab](https://www.aargonlab.com). You are free to use, modify, and distribute this software for personal or commercial purposes. See the LICENSE file for full terms.
-
----
-
-## Support
-
-- **Documentation**: [View full docs](https://github.com/your-org/self-service-return/wiki)
-- **Issues**: [GitHub Issues](https://github.com/your-org/self-service-return/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/self-service-return/discussions)
-
----
-
-## Acknowledgments
-
-Built with:
-- [Remix](https://remix.run/) - Full-stack web framework
-- [Shopify Polaris](https://polaris.shopify.com/) - Admin UI components
-- [Prisma](https://www.prisma.io/) - Type-safe database ORM
-- [Resend](https://resend.com/) - Email delivery
-- [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
-
-Made with care by [aargonlab](https://www.aargonlab.com) — designed for developers who want full control over their returns workflow.
+Maintained by [aargonlab](https://www.aargonlab.com).
