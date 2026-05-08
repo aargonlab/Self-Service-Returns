@@ -1,12 +1,9 @@
-import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
 import { getOrderForPortal } from "~/services/shopifyPortal.server";
 import { checkReturnEligibility } from "~/services/shopify.server";
 import { getSettings } from "~/models/returnSettings.server";
-import { createReturnRequest } from "~/models/returnRequest.server";
 import { addTimelineEvent } from "~/models/returnTimeline.server";
 import { sendReturnConfirmationEmail, sendReturnRejectedEmail } from "~/services/email.server";
 import { evaluatePolicies } from "~/services/policyEngine.server";
-import prisma from "~/db.server";
 import { transitionStatus } from "~/services/stateMachine.server";
 import { listActiveReasons, getReasonResolutions } from "~/models/customReason.server";
 import { getMarketFromOrder, fetchMarketsForShop } from "~/services/shopifyMarkets.server";
@@ -161,7 +158,6 @@ export async function expandAndValidateRxGrouping(
   }
 
   const lineItems = order.lineItems.nodes;
-  const originalSelectedIds = new Set(selectedLineItemIds);
 
   // Expand grouped items
   for (const selectedId of [...expandedIds]) {

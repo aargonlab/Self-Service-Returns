@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Shopify app configuration template.
+#
+# After running `npm run config:link` (or `shopify app config link`), the
+# Shopify CLI will create a `shopify.app.<handle>.toml` file in this directory
+# populated from your Partner Dashboard. Use this file as a reference for the
+# expected shape if you prefer to author the config manually.
+#
+# Docs: https://shopify.dev/docs/apps/build/cli-for-apps/app-configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Unique handle assigned by the Shopify CLI when you link the app.
+client_id = "your-client-id"
+name = "Self-Service Return"
+handle = "self-service-return"
+application_url = "https://your-app-url.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "your-dev-store.myshopify.com"
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2026-04"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/webhooks"
+
+  [[webhooks.subscriptions]]
+  topics = ["orders/create", "orders/updated", "orders/cancelled"]
+  uri = "/webhooks"
+
+  [[webhooks.subscriptions]]
+  topics = ["returns/approve", "returns/cancel", "returns/close", "returns/decline", "returns/request"]
+  uri = "/webhooks"
+
+[access_scopes]
+# Keep in sync with the SCOPES env var.
+scopes = "read_orders,write_orders,read_customers,read_returns,write_returns,read_products,read_markets,write_draft_orders,read_merchant_managed_fulfillment_orders,read_third_party_fulfillment_orders"
+
+[auth]
+redirect_urls = [
+  "https://your-app-url.com/auth/callback",
+  "https://your-app-url.com/auth/shopify/callback",
+  "https://your-app-url.com/api/auth/callback",
+]
+
+[pos]
+embedded = false

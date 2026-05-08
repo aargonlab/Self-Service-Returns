@@ -1,4 +1,3 @@
-import type { Session } from "@shopify/shopify-api";
 import { json } from "@remix-run/node";
 import { encryptCredential } from "~/utils/encryption.server";
 import { updateSettings } from "~/models/returnSettings.server";

@@ -51,7 +51,7 @@ export default defineConfig({
       "@shopify/app-bridge-react",
       "@shopify/polaris",
       "@shopify/shopify-app-session-storage-prisma",
-      "@shopify/shopify-api/rest/admin/2025-01",
+      "@shopify/shopify-api/rest/admin/2026-04",
       "@prisma/client",
     ],
   },
