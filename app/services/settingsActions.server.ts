@@ -455,6 +455,9 @@ export async function handleSaveSettings(formData: FormData, shop: string) {
   const webhookSecretRaw = (formData.get("webhookSecret") as string) || null;
   const webhookSecret = webhookSecretRaw ? encryptCredential(webhookSecretRaw) : null;
   const webhookActive = formData.get("webhookActive") === "true";
+  // Default to true when the field is absent (e.g. older clients) to preserve the existing OTP requirement.
+  const requireRefundOtpRaw = formData.get("requireRefundOtp");
+  const requireRefundOtp = requireRefundOtpRaw === null ? undefined : requireRefundOtpRaw === "true";
 
   const webhookEventsRaw = formData.get("webhookEvents") as string;
   let webhookEvents: string[] | undefined;
@@ -537,6 +540,7 @@ export async function handleSaveSettings(formData: FormData, shop: string) {
     webhookActive,
     webhookEvents,
     webhookStatusFilters,
+    requireRefundOtp,
   });
 
   return json({ success: true, error: null });

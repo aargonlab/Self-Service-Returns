@@ -198,6 +198,7 @@ export default function Settings() {
   const [webhookUrl, setWebhookUrl] = useState(settings.webhookUrl || "");
   const [webhookSecret, setWebhookSecret] = useState(settings.webhookSecret || "");
   const [webhookActive, setWebhookActive] = useState(settings.webhookActive ?? false);
+  const [requireRefundOtp, setRequireRefundOtp] = useState(settings.requireRefundOtp ?? true);
 
   const ALL_WEBHOOK_EVENTS = [
     { value: "return.submitted", label: "Return Submitted" },
@@ -352,6 +353,7 @@ export default function Settings() {
     webhookUrl !== (settings.webhookUrl || "") ||
     webhookSecret !== (settings.webhookSecret || "") ||
     webhookActive !== (settings.webhookActive ?? false) ||
+    requireRefundOtp !== (settings.requireRefundOtp ?? true) ||
     JSON.stringify(webhookEvents) !== JSON.stringify(initialWebhookEvents) ||
     JSON.stringify(webhookStatusFilters) !== JSON.stringify(initialStatusFilters) ||
     JSON.stringify(marketReturnWindows) !== JSON.stringify(initialMarketReturnWindows);
@@ -445,6 +447,7 @@ export default function Settings() {
     setExcludeReplacementForRxGroup(settings.excludeReplacementForRxGroup ?? false);
     setLogoUrl(settings.logoUrl || "");
     setMarketReturnWindows(stableMarketReturnWindows);
+    setRequireRefundOtp(settings.requireRefundOtp ?? true);
     setBannerDismissed(false);
     setLogoError(false);
   }, [settings, stableMarketReturnWindows]);
@@ -571,6 +574,7 @@ export default function Settings() {
           <input type="hidden" name="webhookActive" value={String(webhookActive)} />
           <input type="hidden" name="webhookEvents" value={JSON.stringify(webhookEvents)} />
           <input type="hidden" name="webhookStatusFilters" value={JSON.stringify(webhookStatusFilters)} />
+          <input type="hidden" name="requireRefundOtp" value={String(requireRefundOtp)} />
 
           {/* Tab 0: General */}
           {selectedTab === 0 && (
@@ -2080,19 +2084,53 @@ export default function Settings() {
         {/* Tab 8: Refund Authorization */}
         {selectedTab === 8 && (
           <div style={{ marginTop: "16px" }}>
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">Refund Authorization</Text>
-                <Text as="p" variant="bodyMd">
-                  Manage which team members can process refunds. Authorized agents must verify their identity via email OTP before processing any refund.
-                </Text>
-                <InlineStack align="start">
-                  <Button url="/app/settings/refund-agents">
-                    Manage Refund Agents
-                  </Button>
-                </InlineStack>
-              </BlockStack>
-            </Card>
+            <BlockStack gap="400">
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">Email verification (OTP)</Text>
+                  <Checkbox
+                    label="Require email OTP verification before processing refunds"
+                    checked={requireRefundOtp}
+                    onChange={setRequireRefundOtp}
+                    helpText={
+                      requireRefundOtp
+                        ? "Authorized agents must enter a 6-digit code emailed to them before they can issue a refund."
+                        : "OTP is disabled. Any admin user can process refunds without an extra verification step. The refund agent list is ignored."
+                    }
+                  />
+                  {!requireRefundOtp && (
+                    <Banner tone="warning">
+                      <p>
+                        OTP verification is off. Refunds will be processed immediately on click,
+                        without a second-factor check. Re-enable this if you want to require
+                        email verification.
+                      </p>
+                    </Banner>
+                  )}
+                </BlockStack>
+              </Card>
+
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">Refund Authorization</Text>
+                  <Text as="p" variant="bodyMd">
+                    Manage which team members can process refunds. When OTP is enabled,
+                    authorized agents must verify their identity via email before processing
+                    any refund.
+                  </Text>
+                  <InlineStack align="start">
+                    <Button url="/app/settings/refund-agents" disabled={!requireRefundOtp}>
+                      Manage Refund Agents
+                    </Button>
+                  </InlineStack>
+                  {!requireRefundOtp && (
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      The agent list is unused while OTP is disabled.
+                    </Text>
+                  )}
+                </BlockStack>
+              </Card>
+            </BlockStack>
           </div>
         )}
       </Tabs>

@@ -190,6 +190,10 @@ export const action = async ({ params, request }: ActionFunctionArgs) => {
     let result;
 
     if (intent === "request-refund-otp") {
+      const settings = await getSettings(session.shop);
+      if (!settings.requireRefundOtp) {
+        return json({ otpError: "OTP verification is disabled in settings.", otpDisabled: true });
+      }
       const email = formData.get("email") as string;
       if (!email) {
         return json({ otpError: "Email is required." });
@@ -202,6 +206,10 @@ export const action = async ({ params, request }: ActionFunctionArgs) => {
     }
 
     if (intent === "verify-refund-otp") {
+      const settings = await getSettings(session.shop);
+      if (!settings.requireRefundOtp) {
+        return json({ otpError: "OTP verification is disabled in settings.", otpDisabled: true });
+      }
       const email = formData.get("email") as string;
       const code = formData.get("code") as string;
       if (!email || !code) {
@@ -222,13 +230,17 @@ export const action = async ({ params, request }: ActionFunctionArgs) => {
     } else if (intent === "update-status") {
       const newStatus = formData.get("status") as string;
       if (newStatus === "REFUNDED") {
-        const refundSessionToken = formData.get("refundSessionToken") as string;
-        if (!refundSessionToken) {
-          return json({ success: false, message: "Refund authorization required. Please verify your identity." }, { status: 401 });
-        }
-        const sessionValid = await validateSessionToken(session.shop, refundSessionToken);
-        if (!sessionValid) {
-          return json({ success: false, message: "Refund session expired or invalid. Please verify again." }, { status: 401 });
+        // OTP is gated by the shop's ReturnSettings.requireRefundOtp toggle.
+        const refundSettings = await getSettings(session.shop);
+        if (refundSettings.requireRefundOtp) {
+          const refundSessionToken = formData.get("refundSessionToken") as string;
+          if (!refundSessionToken) {
+            return json({ success: false, message: "Refund authorization required. Please verify your identity." }, { status: 401 });
+          }
+          const sessionValid = await validateSessionToken(session.shop, refundSessionToken);
+          if (!sessionValid) {
+            return json({ success: false, message: "Refund session expired or invalid. Please verify again." }, { status: 401 });
+          }
         }
         result = await processRefundAction(admin, returnId, session.shop, actor);
       } else if (newStatus === "EXCHANGED") {
@@ -314,7 +326,9 @@ export default function ReturnDetail() {
     replacementInstruction,
     reasonLabels,
     shippingLabel,
+    settings,
   } = useLoaderData<typeof loader>();
+  const requireRefundOtp = settings?.requireRefundOtp ?? true;
   const actionData = useActionData<typeof action>();
   const isSubmitting = navigation.state === "submitting";
   const labelFetcher = useFetcher<{ success: boolean; message?: string }>();
@@ -1088,8 +1102,20 @@ export default function ReturnDetail() {
                     );
                   }
 
-                  // Special handling for REFUNDED - OTP gate
+                  // Special handling for REFUNDED - OTP gate (only when OTP is enabled)
                   if (targetStatus === "REFUNDED") {
+                    // OTP disabled: submit refund directly, no modal, no session token.
+                    if (!requireRefundOtp) {
+                      return (
+                        <Form method="post" key={targetStatus}>
+                          <input type="hidden" name="intent" value="update-status" />
+                          <input type="hidden" name="status" value="REFUNDED" />
+                          <Button submit fullWidth disabled={isSubmitting}>
+                            Process Refund
+                          </Button>
+                        </Form>
+                      );
+                    }
                     // If we have a valid session, show direct refund form
                     if (refundSessionToken) {
                       return (
