@@ -53,6 +53,7 @@ export async function updateSettings(
     webhookActive?: boolean;
     webhookEvents?: string[];
     webhookStatusFilters?: string[];
+    requireRefundOtp?: boolean;
   },
 ) {
   // Bug #386: Validate returnWindowDays is within valid range

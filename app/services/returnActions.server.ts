@@ -774,7 +774,7 @@ export async function transitionStatusAction(
   try {
     // Validate status against enum before proceeding
     // REFUNDED and EXCHANGED are excluded from direct transition and must go through:
-    // - processRefundAction() for REFUNDED - requires OTP verification for security
+    // - processRefundAction() for REFUNDED - OTP verification enforced by the calling route when ReturnSettings.requireRefundOtp is true
     // - processReplacementAction() for EXCHANGED - requires modal confirmation with notes
     // This design ensures proper authorization and context collection for financial/inventory actions.
     const VALID_STATUSES = [
