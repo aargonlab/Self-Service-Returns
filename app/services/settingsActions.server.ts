@@ -1,6 +1,7 @@
 import { json } from "@remix-run/node";
-import { encryptCredential } from "~/utils/encryption.server";
-import { updateSettings } from "~/models/returnSettings.server";
+import { encryptCredential, decryptCredential } from "~/utils/encryption.server";
+import { getSettings, updateSettings } from "~/models/returnSettings.server";
+import { signPayload } from "~/services/webhook.server";
 import { settingsSchema, validateExternalUrl } from "~/utils/validators";
 import { createApiKey, revokeApiKey, deleteApiKey } from "~/services/api.auth.server";
 import type { ApiScope } from "~/services/api.auth.server";
@@ -405,29 +406,74 @@ export async function handleTestWebhook(formData: FormData, shop: string) {
     return json({ success: false, error: err.message, intent: "test-webhook" }, { status: 400 });
   }
 
+  // Resolve the signing secret. Priority:
+  //   1. Plaintext secret submitted from the form (user is editing, may not have saved yet).
+  //   2. Encrypted secret persisted in settings, decrypted here.
+  // If neither is present, the test fires without an HMAC header — same shape a receiver
+  // would see when the shop hasn't configured a secret.
+  const formSecret = (formData.get("testWebhookSecret") as string | null)?.trim() || "";
+  let signingSecret = formSecret;
+  if (!signingSecret) {
+    try {
+      const settings = await getSettings(shop);
+      if (settings.webhookSecret) {
+        signingSecret = decryptCredential(settings.webhookSecret);
+      }
+    } catch (err) {
+      console.warn("[TestWebhook] Failed to load/decrypt persisted secret:", err);
+    }
+  }
+
+  const timestamp = new Date().toISOString();
+  const body = JSON.stringify({
+    event: "test.ping",
+    timestamp,
+    shop,
+    data: { message: "Test webhook from Self Service Return" },
+  });
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Webhook-Event": "test.ping",
+    "X-Webhook-Timestamp": timestamp,
+  };
+  if (signingSecret) {
+    headers["X-Webhook-Signature"] = `sha256=${signPayload(body, signingSecret)}`;
+  }
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(testUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event: "test.ping",
-        timestamp: new Date().toISOString(),
-        shop,
-        data: { message: "Test webhook from Self Service Return" },
-      }),
+      headers,
+      body,
       signal: controller.signal,
     });
     clearTimeout(timeout);
     if (res.ok) {
-      return json({ success: true, intent: "test-webhook" });
+      return json({
+        success: true,
+        intent: "test-webhook",
+        signed: Boolean(signingSecret),
+      });
     } else {
-      return json({ success: false, error: `Webhook returned HTTP ${res.status}`, intent: "test-webhook" }, { status: 400 });
+      return json(
+        {
+          success: false,
+          error: `Webhook returned HTTP ${res.status}`,
+          intent: "test-webhook",
+          signed: Boolean(signingSecret),
+        },
+        { status: 400 },
+      );
     }
   } catch (err: any) {
     const msg = err?.name === "AbortError" ? "Request timed out (5s)" : (err?.message || "Connection failed");
-    return json({ success: false, error: msg, intent: "test-webhook" }, { status: 400 });
+    return json(
+      { success: false, error: msg, intent: "test-webhook", signed: Boolean(signingSecret) },
+      { status: 400 },
+    );
   }
 }
 

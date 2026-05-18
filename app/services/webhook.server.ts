@@ -26,7 +26,7 @@ interface WebhookPayload {
 /**
  * Sign a payload with HMAC-SHA256 using the webhook secret.
  */
-function signPayload(payload: string, secret: string): string {
+export function signPayload(payload: string, secret: string): string {
   return createHmac("sha256", secret).update(payload).digest("hex");
 }
 

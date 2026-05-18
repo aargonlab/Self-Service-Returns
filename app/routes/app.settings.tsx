@@ -382,10 +382,15 @@ export default function Settings() {
   // Handle webhook test results
   useEffect(() => {
     if (webhookFetcher.data && (webhookFetcher.data as any).intent === "test-webhook") {
-      if ((webhookFetcher.data as any).success) {
-        shopify.toast.show("Test webhook sent successfully!");
+      const data = webhookFetcher.data as any;
+      if (data.success) {
+        shopify.toast.show(
+          data.signed
+            ? "Test webhook sent successfully (signed with HMAC)"
+            : "Test webhook sent successfully (unsigned — no secret configured)"
+        );
       } else {
-        shopify.toast.show((webhookFetcher.data as any).error || "Test failed", { isError: true });
+        shopify.toast.show(data.error || "Test failed", { isError: true });
       }
     }
   }, [webhookFetcher.data]);
@@ -2067,6 +2072,12 @@ export default function Settings() {
                           const fd = new FormData();
                           fd.append("intent", "test-webhook");
                           fd.append("testWebhookUrl", webhookUrl);
+                          // Send the plaintext secret from local state so the test signs the
+                          // request the same way a real delivery would, even before saving.
+                          // If empty, the server falls back to the persisted, encrypted secret.
+                          if (webhookSecret) {
+                            fd.append("testWebhookSecret", webhookSecret);
+                          }
                           webhookFetcher.submit(fd, { method: "post" });
                         }}
                         loading={webhookFetcher.state !== "idle"}
