@@ -438,7 +438,7 @@ export async function handleTestWebhook(formData: FormData, shop: string) {
     "X-Webhook-Timestamp": timestamp,
   };
   if (signingSecret) {
-    headers["X-Webhook-Signature"] = `sha256=${signPayload(body, signingSecret)}`;
+    headers["X-Webhook-Signature"] = signPayload(body, signingSecret);
   }
 
   try {

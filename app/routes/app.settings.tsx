@@ -2017,7 +2017,7 @@ export default function Settings() {
                     value={webhookSecret}
                     onChange={setWebhookSecret}
                     placeholder="Enter a secret key for HMAC-SHA256 signing"
-                    helpText="Used to sign webhook payloads with HMAC-SHA256. The signature is sent in the X-Webhook-Signature header."
+                    helpText="Used to sign webhook payloads with HMAC-SHA256. The Base64-encoded signature is sent in the X-Webhook-Signature header (no prefix), matching the Shopify webhook convention."
                     autoComplete="off"
                     disabled={!webhookActive}
                   />

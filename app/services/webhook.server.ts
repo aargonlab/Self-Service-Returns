@@ -1,10 +1,12 @@
-import { createHmac } from "crypto";
 import { getSettings } from "~/models/returnSettings.server";
 import { getReturnRequest } from "~/models/returnRequest.server";
 import { getShippingLabel } from "~/services/shippingLabel.server";
 import { getReplacementInstruction } from "~/models/replacement.server";
 import { validateExternalUrl } from "~/utils/validators";
 import { decryptCredential } from "~/utils/encryption.server";
+import { signPayload } from "~/utils/webhookSignature";
+
+export { signPayload };
 
 export type WebhookEvent =
   | "return.submitted"
@@ -21,13 +23,6 @@ interface WebhookPayload {
   timestamp: string;
   shop: string;
   data: Record<string, unknown>;
-}
-
-/**
- * Sign a payload with HMAC-SHA256 using the webhook secret.
- */
-export function signPayload(payload: string, secret: string): string {
-  return createHmac("sha256", secret).update(payload).digest("hex");
 }
 
 /**
@@ -197,8 +192,7 @@ export async function sendWebhookNotification(
       } catch (error) {
         console.error("[Webhook] Failed to decrypt webhook secret:", error);
       }
-      const signature = signPayload(body, webhookSecret);
-      headers["X-Webhook-Signature"] = `sha256=${signature}`;
+      headers["X-Webhook-Signature"] = signPayload(body, webhookSecret);
     }
 
     const controller = new AbortController();
