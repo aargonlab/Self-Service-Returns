@@ -432,6 +432,11 @@ export async function processRefundAction(
   returnId: string,
   shop: string,
   actor: ActorInfo,
+  // Server-only flag, set by the public API when it decides to skip the
+  // physical-return path (e.g. ERP refunds before goods are received).
+  // Never plumb this from a request body — callers must derive it from
+  // trusted server-side state (current status + scope).
+  options?: { force?: boolean },
 ): Promise<ActionResult> {
   try {
     const returnRequestForRefund = await getReturnRequest(returnId, shop);
@@ -509,8 +514,12 @@ export async function processRefundAction(
         refundId: refundResult.refundId,
         amount: refundResult.amount,
         currency: refundResult.currency,
+        ...(options?.force ? { forcedTransition: true } : {}),
       },
       shop,
+      // Only the API path sets force=true. When set, allow the jump straight
+      // to REFUNDED from APPROVED / AWAITING_SHIPMENT / IN_TRANSIT.
+      options?.force ? { force: true } : undefined,
     );
 
     // Send refund email

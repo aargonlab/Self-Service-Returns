@@ -1,38 +1,13 @@
 import type { ReturnStatus, AuthorType } from "@prisma/client";
 import prisma from "~/db.server";
+import {
+  canTransition,
+  getAvailableTransitions,
+  getTransitionEventName,
+  InvalidTransitionError,
+} from "~/services/stateMachine.transitions";
 
-const TRANSITIONS: Record<ReturnStatus, ReturnStatus[]> = {
-  SUBMITTED: ["PENDING_REVIEW", "APPROVED", "REJECTED", "CANCELLED"],
-  PENDING_REVIEW: ["APPROVED", "REJECTED", "CANCELLED"],
-  APPROVED: ["AWAITING_SHIPMENT", "CANCELLED"],
-  REJECTED: ["CLOSED"],
-  AWAITING_SHIPMENT: ["IN_TRANSIT", "CANCELLED"],
-  IN_TRANSIT: ["RECEIVED", "CANCELLED"],
-  RECEIVED: ["PARTIALLY_ACCEPTED", "REFUNDED", "EXCHANGED", "CANCELLED"],
-  PARTIALLY_ACCEPTED: ["REFUNDED", "EXCHANGED"],
-  REFUNDED: ["CLOSED"],
-  EXCHANGED: ["CLOSED"],
-  CLOSED: [],
-  CANCELLED: [],
-};
-
-export function getAvailableTransitions(status: ReturnStatus): ReturnStatus[] {
-  return TRANSITIONS[status] ?? [];
-}
-
-function canTransition(
-  from: ReturnStatus,
-  to: ReturnStatus,
-): boolean {
-  return TRANSITIONS[from]?.includes(to) ?? false;
-}
-
-export class InvalidTransitionError extends Error {
-  constructor(from: ReturnStatus, to: ReturnStatus) {
-    super(`Invalid status transition from ${from} to ${to}`);
-    this.name = "InvalidTransitionError";
-  }
-}
+export { getAvailableTransitions, InvalidTransitionError };
 
 export async function transitionStatus(
   returnRequestId: string,
@@ -40,6 +15,11 @@ export async function transitionStatus(
   actor: { name: string; type: AuthorType },
   details?: Record<string, unknown>,
   shop?: string,
+  // Server-only escape hatch: when true, skip the state-machine edge check.
+  // Reserved for API-driven flows that intentionally short-circuit the
+  // physical-return path (e.g. ERP-driven refunds before goods are received).
+  // Never expose this through user-facing inputs.
+  options?: { force?: boolean },
 ) {
   const MAX_RETRIES = 3;
   let lastError: Error | null = null;
@@ -67,7 +47,7 @@ export async function transitionStatus(
           throw new Error(`Return request ${returnRequestId} not found`);
         }
 
-        if (!canTransition(current.status, toStatus)) {
+        if (!options?.force && !canTransition(current.status, toStatus)) {
           throw new InvalidTransitionError(current.status, toStatus);
         }
 
@@ -146,35 +126,4 @@ export async function transitionStatus(
   }
 
   throw lastError || new Error("Max retries exceeded for status transition");
-}
-
-function getTransitionEventName(
-  from: ReturnStatus,
-  to: ReturnStatus,
-): string {
-  const eventMap: Record<string, string> = {
-    "SUBMITTED->PENDING_REVIEW": "Return moved to review",
-    "SUBMITTED->APPROVED": "Return auto-approved",
-    "SUBMITTED->REJECTED": "Return auto-rejected",
-    "SUBMITTED->CANCELLED": "Return cancelled",
-    "PENDING_REVIEW->APPROVED": "Return approved",
-    "PENDING_REVIEW->REJECTED": "Return rejected",
-    "PENDING_REVIEW->CANCELLED": "Return cancelled",
-    "APPROVED->AWAITING_SHIPMENT": "Awaiting return shipment",
-    "APPROVED->CANCELLED": "Return cancelled",
-    "REJECTED->CLOSED": "Return closed",
-    "AWAITING_SHIPMENT->IN_TRANSIT": "Return shipment in transit",
-    "AWAITING_SHIPMENT->CANCELLED": "Return cancelled",
-    "IN_TRANSIT->RECEIVED": "Return received at warehouse",
-    "RECEIVED->PARTIALLY_ACCEPTED": "Items partially accepted",
-    "RECEIVED->REFUNDED": "Refund processed",
-    "RECEIVED->EXCHANGED": "Replacement order created",
-    "RECEIVED->CANCELLED": "Return cancelled",
-    "PARTIALLY_ACCEPTED->REFUNDED": "Partial refund processed",
-    "PARTIALLY_ACCEPTED->EXCHANGED": "Partial replacement processed",
-    "REFUNDED->CLOSED": "Return closed",
-    "EXCHANGED->CLOSED": "Return closed",
-  };
-
-  return eventMap[`${from}->${to}`] ?? `Status changed from ${from} to ${to}`;
 }

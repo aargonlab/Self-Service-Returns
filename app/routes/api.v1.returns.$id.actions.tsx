@@ -174,12 +174,25 @@ export const action = async ({ params, request }: ActionFunctionArgs) => {
         case "cancel":
           result = await cancelReturn(ctx.admin, resolvedId, ctx.shop, actor);
           break;
-        case "process_refund":
+        case "process_refund": {
           // Note: process_refund via API does not require OTP verification.
           // API keys are high-trust credentials with explicit scopes.
           // OTP is only required for interactive admin UI sessions.
-          result = await processRefundAction(ctx.admin, resolvedId, ctx.shop, actor);
+          //
+          // Unlike the admin UI, the API allows skipping the physical-return
+          // path (IN_TRANSIT → RECEIVED) when the ERP signals that a refund
+          // should be emitted earlier. We enable `force` automatically when
+          // the return is in any post-approval state — never accept a force
+          // flag from the request body, the decision is server-side only.
+          const FORCE_FROM: ReadonlyArray<typeof returnRequest.status> = [
+            "APPROVED",
+            "AWAITING_SHIPMENT",
+            "IN_TRANSIT",
+          ];
+          const force = FORCE_FROM.includes(returnRequest.status);
+          result = await processRefundAction(ctx.admin, resolvedId, ctx.shop, actor, { force });
           break;
+        }
         case "process_replacement":
           result = await processReplacementAction(ctx.admin, resolvedId, ctx.shop, body.notes, actor);
           break;
