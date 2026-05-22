@@ -63,6 +63,7 @@ export const ORDER_QUERY = `#graphql
             tags
           }
           quantity
+          refundableQuantity
           customAttributes {
             key
             value

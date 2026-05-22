@@ -19,6 +19,10 @@ import {
   RETURN_CANCEL_MUTATION,
 } from "~/utils/shopifyGraphql";
 import { findReturnRequestsByOrder } from "~/models/returnRequest.server";
+import {
+  calculateFulfilledQuantities,
+  computeReturnable,
+} from "~/services/eligibilityCalc";
 
 // Type for the admin API context from Shopify authenticate
 type AdminApiContext = {
@@ -159,10 +163,24 @@ export async function checkReturnEligibility(
     }
   }
 
+  // Quantity actually delivered per line item, computed only from
+  // SUCCESS-status fulfillments. This is the upper bound on what can be
+  // returned, before further capping by refunds processed outside our app.
+  const fulfilledQuantities = calculateFulfilledQuantities(order);
+
   // Build eligible items list
   for (const lineItem of order.lineItems.nodes) {
     const totalReturned = returnedQuantities.get(lineItem.id) ?? 0;
-    const returnableQuantity = lineItem.quantity - totalReturned;
+    const {
+      returnableQuantity,
+      fulfilledQuantity,
+      refundableQuantity,
+    } = computeReturnable({
+      orderedQuantity: lineItem.quantity,
+      fulfilledQuantity: fulfilledQuantities.get(lineItem.id) ?? 0,
+      shopifyRefundableQuantity: lineItem.refundableQuantity,
+      alreadyReturnedQuantity: totalReturned,
+    });
 
     if (returnableQuantity > 0) {
       const price = lineItem.discountedUnitPriceSet?.shopMoney?.amount;
@@ -190,6 +208,8 @@ export async function checkReturnEligibility(
           return code;
         })(),
         totalQuantity: lineItem.quantity,
+        fulfilledQuantity,
+        refundableQuantity,
         alreadyReturnedQuantity: totalReturned,
         returnableQuantity,
         priceAvailable,

@@ -14,6 +14,11 @@ export interface ShopifyLineItem {
     tags: string[];
   } | null;
   quantity: number;
+  /** Shopify-computed quantity still refundable. Decreases when any refund or
+   *  return happens through Shopify's APIs (including via the Shopify Admin
+   *  UI, bypassing our app). Authoritative upper bound for what a customer
+   *  can still return through our portal. */
+  refundableQuantity?: number;
   customAttributes: Array<{
     key: string;
     value: string | null;
@@ -157,6 +162,12 @@ export interface EligibleItem {
   price: string;
   currencyCode: string;
   totalQuantity: number;
+  /** Quantity successfully fulfilled to the customer (sum of SUCCESS-status
+   *  fulfillment line items). Items never shipped are 0. */
+  fulfilledQuantity: number;
+  /** Mirror of Shopify's `LineItem.refundableQuantity` at the time of the
+   *  eligibility check. Reflects refunds/returns processed outside our app. */
+  refundableQuantity: number;
   alreadyReturnedQuantity: number;
   returnableQuantity: number;
   /** Whether price data was available from Shopify (false means price fell back to "0"). */
