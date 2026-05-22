@@ -449,7 +449,10 @@ export async function processRefundAction(
       };
     }
 
-    // Use refundCreate (reliable across API versions) to process the refund
+    // Use refundCreate (reliable across API versions) to process the refund.
+    // The idempotency key is tied to the return id so any network retry hits
+    // Shopify's dedup window and returns the cached refund instead of issuing
+    // a second one.
     const refundResult = await processRefund(
       admin,
       returnRequestForRefund.shopifyOrderId,
@@ -457,6 +460,7 @@ export async function processRefundAction(
         lineItemId: item.shopifyLineItemId,
         quantity: item.quantity,
       })),
+      `refund-${returnRequestForRefund.id}`,
     );
 
     // Check if refund succeeded BEFORE closing the Shopify return

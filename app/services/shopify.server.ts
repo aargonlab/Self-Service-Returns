@@ -649,9 +649,15 @@ export async function processRefund(
     lineItemId: string;
     quantity: number;
   }>,
+  // Deterministic key used by Shopify's @idempotent directive to dedup retries.
+  // Pass a value tied to the operation identity (e.g. `refund-${returnRequestId}`).
+  uniqueKey: string,
 ): Promise<
   { refundId: string; amount: string; currency: string } | { error: string }
 > {
+  if (!uniqueKey) {
+    return { error: "Internal error: refund idempotency key was not provided." };
+  }
   try {
     const refundLineItems = items.map((item) => ({
       lineItemId: item.lineItemId,
@@ -720,6 +726,7 @@ export async function processRefund(
           transactions,
           notify: true,
         },
+        uniqueKey,
       },
     });
 
