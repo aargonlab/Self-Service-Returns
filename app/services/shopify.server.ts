@@ -726,7 +726,7 @@ export async function processRefund(
           transactions,
           notify: true,
         },
-        uniqueKey,
+        key: uniqueKey,
       },
     });
 

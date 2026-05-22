@@ -224,13 +224,13 @@ export const SUGGESTED_REFUND_QUERY = `#graphql
 
 // Shopify Admin API (>=2026-04) requires the @idempotent directive on
 // refundCreate to protect against duplicate refunds on network retries.
-// The uniqueKey is passed as a variable so the caller can derive a
-// deterministic key (e.g. per ReturnRequest id) and benefit from Shopify's
-// dedup window — repeated calls with the same key return the cached result
+// The key is passed as a variable so the caller can derive a deterministic
+// value (e.g. per ReturnRequest id) and benefit from Shopify's dedup
+// window — repeated calls with the same key return the cached result
 // instead of issuing a second refund.
 export const REFUND_CREATE_MUTATION = `#graphql
-  mutation refundCreate($input: RefundInput!, $uniqueKey: String!) {
-    refundCreate(input: $input) @idempotent(uniqueKey: $uniqueKey) {
+  mutation refundCreate($input: RefundInput!, $key: String!) {
+    refundCreate(input: $input) @idempotent(key: $key) {
       refund {
         id
         totalRefundedSet {
