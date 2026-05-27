@@ -57,6 +57,48 @@ test("Timeline label for standard RECEIVED → REFUNDED is unchanged", () => {
   assert.equal(getTransitionEventName("RECEIVED", "REFUNDED"), "Refund processed");
 });
 
+// Same UI/API split for replacements: standard EXCHANGED is reachable only
+// after physical receipt; the API uses `force=true` to bypass.
+
+test("UI shortcut guard: APPROVED cannot transition directly to EXCHANGED", () => {
+  assert.equal(canTransition("APPROVED", "EXCHANGED"), false);
+});
+
+test("UI shortcut guard: AWAITING_SHIPMENT cannot transition directly to EXCHANGED", () => {
+  assert.equal(canTransition("AWAITING_SHIPMENT", "EXCHANGED"), false);
+});
+
+test("UI shortcut guard: IN_TRANSIT cannot transition directly to EXCHANGED", () => {
+  assert.equal(canTransition("IN_TRANSIT", "EXCHANGED"), false);
+});
+
+test("Existing happy path: RECEIVED → EXCHANGED is still valid", () => {
+  assert.equal(canTransition("RECEIVED", "EXCHANGED"), true);
+});
+
+test("Existing happy path: PARTIALLY_ACCEPTED → EXCHANGED is still valid", () => {
+  assert.equal(canTransition("PARTIALLY_ACCEPTED", "EXCHANGED"), true);
+});
+
+test("Timeline label for forced APPROVED → EXCHANGED marks intermediate skip", () => {
+  const label = getTransitionEventName("APPROVED", "EXCHANGED");
+  assert.match(label, /intermediate states skipped via API/i);
+});
+
+test("Timeline label for forced AWAITING_SHIPMENT → EXCHANGED marks intermediate skip", () => {
+  const label = getTransitionEventName("AWAITING_SHIPMENT", "EXCHANGED");
+  assert.match(label, /intermediate states skipped via API/i);
+});
+
+test("Timeline label for forced IN_TRANSIT → EXCHANGED marks intermediate skip", () => {
+  const label = getTransitionEventName("IN_TRANSIT", "EXCHANGED");
+  assert.match(label, /intermediate states skipped via API/i);
+});
+
+test("Timeline label for standard RECEIVED → EXCHANGED is unchanged", () => {
+  assert.equal(getTransitionEventName("RECEIVED", "EXCHANGED"), "Replacement order created");
+});
+
 test("TRANSITIONS table contains all 12 ReturnStatus enum members", () => {
   // Compile-time + runtime guard: every enum member is keyed in the table,
   // so a future status added to the schema fails the test until handled.

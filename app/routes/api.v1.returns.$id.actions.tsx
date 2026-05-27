@@ -193,9 +193,20 @@ export const action = async ({ params, request }: ActionFunctionArgs) => {
           result = await processRefundAction(ctx.admin, resolvedId, ctx.shop, actor, { force });
           break;
         }
-        case "process_replacement":
-          result = await processReplacementAction(ctx.admin, resolvedId, ctx.shop, body.notes, actor);
+        case "process_replacement": {
+          // Same rationale as process_refund: the API skips the physical
+          // return-receipt path when the ERP triggers the replacement
+          // earlier. The decision is server-side only — never read a force
+          // flag from the request body.
+          const FORCE_FROM: ReadonlyArray<typeof returnRequest.status> = [
+            "APPROVED",
+            "AWAITING_SHIPMENT",
+            "IN_TRANSIT",
+          ];
+          const force = FORCE_FROM.includes(returnRequest.status);
+          result = await processReplacementAction(ctx.admin, resolvedId, ctx.shop, body.notes, actor, { force });
           break;
+        }
         case "transition":
           if (!body.status) return apiBadRequest("'status' is required for transition action", undefined, ctx.shop, ctx.requestOrigin);
           result = await transitionStatusAction(resolvedId, body.status, ctx.shop, actor);

@@ -583,6 +583,10 @@ export async function processReplacementAction(
   shop: string,
   notes: string | undefined,
   actor: ActorInfo,
+  // Mirror of processRefundAction: server-only escape hatch for API callers
+  // (typically ERP/Boomi) that need to emit a replacement before the
+  // physical return has been received. Never sourced from request body.
+  options?: { force?: boolean },
 ): Promise<ActionResult> {
   try {
     const returnRequest = await getReturnRequest(returnId, shop);
@@ -735,8 +739,10 @@ export async function processReplacementAction(
       actor,
       {
         notes,
+        ...(options?.force ? { forcedTransition: true } : {}),
       },
       returnRequest.shop,
+      options?.force ? { force: true } : undefined,
     );
 
     // Auto-close after replacement
