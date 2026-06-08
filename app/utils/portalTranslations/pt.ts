@@ -129,8 +129,8 @@ const pt: Record<string, string> = {
   "portal.reason.OTHER": "Outro",
 
   // Shipping Eligibility disclaimer
-  "portal.disclaimer.shoppingEligibility.title": "Shipping Eligibility Disclaimer",
-  "portal.disclaimer.shoppingEligibility.body": "By accepting this disclaimer, you acknowledge that the return of this product may affect your shipping eligibility for future orders related to this item. This acceptance is final and cannot be revoked. Please review the terms carefully before proceeding.",
+  "portal.disclaimer.shoppingEligibility.title": "Attention",
+  "portal.disclaimer.shoppingEligibility.body": "ATTENTION:\n\nBASED ON THE INFORMATION PROVIDED, THE PRODUCT CANNOT BE RETURNED AT THIS TIME.\nYou will be contacted by Customer Support within 48 business hours with further instructions.\nIn the meantime, store the product safely: place it in a non-flammable container, away from heat sources, liquids, children, and pets, and avoid using, charging, or handling it unnecessarily.\nDo not attempt to repair or modify it in any way.\n\nBy proceeding with the submission of my claim, I confirm that I am aware of the civil and/or criminal liability arising from false statements.",
   "portal.disclaimer.shoppingEligibility.accept": "I Accept the Disclaimer",
   "portal.disclaimer.shoppingEligibility.accepting": "Accepting...",
   "portal.disclaimer.shoppingEligibility.accepted": "Disclaimer accepted on {{date}}",

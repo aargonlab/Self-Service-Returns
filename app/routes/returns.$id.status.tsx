@@ -239,7 +239,10 @@ export default function ReturnStatus() {
                 </h3>
               </div>
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-gray-700 leading-relaxed">
+                <p
+                  className="text-sm text-gray-700 leading-relaxed"
+                  style={{ whiteSpace: "pre-line" }}
+                >
                   {t("portal.disclaimer.shoppingEligibility.body")}
                 </p>
               </div>
