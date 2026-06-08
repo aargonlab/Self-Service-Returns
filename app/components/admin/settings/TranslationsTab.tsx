@@ -76,7 +76,12 @@ export function TranslationsTab({ portalTranslations, supportedLocales, allReaso
       "Status": [],
       "Status Labels": [],
       "Reasons": [],
+      "Disclaimer": [],
       "Errors": [],
+      // Catch-all so a new translation key family never silently disappears
+      // from the editor (the previous behavior hid portal.disclaimer.* keys
+      // entirely).
+      "Other": [],
     };
 
     keys.forEach((key) => {
@@ -87,8 +92,10 @@ export function TranslationsTab({ portalTranslations, supportedLocales, allReaso
       else if (key.startsWith("portal.status.msg.")) groups["Status"].push(key);
       else if (key.startsWith("portal.statusLabel.")) groups["Status Labels"].push(key);
       else if (key.startsWith("portal.reason.")) groups["Reasons"].push(key);
+      else if (key.startsWith("portal.disclaimer.")) groups["Disclaimer"].push(key);
       else if (key.startsWith("portal.error.")) groups["Errors"].push(key);
       else if (key.startsWith("portal.status.")) groups["Status"].push(key);
+      else groups["Other"].push(key);
     });
 
     allReasons.forEach((reason) => {
