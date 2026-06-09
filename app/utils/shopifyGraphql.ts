@@ -131,6 +131,9 @@ export const ORDERS_SEARCH_QUERY = `#graphql
         id
         name
         email
+        customer {
+          email
+        }
       }
     }
   }

@@ -4,6 +4,7 @@ import {
   ORDER_QUERY,
   ORDERS_SEARCH_QUERY,
 } from "~/utils/shopifyGraphql";
+import { orderNameMatches, orderEmailMatches } from "~/services/portalLookupMatch";
 
 function sanitizeSearchTerm(term: string): string {
   // BUG FIX: Prevent ReDoS by limiting input length and using non-regex approach
@@ -47,10 +48,13 @@ export async function lookupOrderForPortal(
   const json = await response.json();
   const orders = json?.data?.orders?.nodes ?? [];
 
+  // Tolerate custom Shopify order-name prefixes (e.g. "NA1023" instead of
+  // "#1023") and also accept the linked customer's email as a valid match —
+  // see portalLookupMatch.ts for the exact rules.
   const match = orders.find(
     (o: ShopifyOrder) =>
-      o.name === `#${cleanName}` &&
-      o.email?.trim().toLowerCase() === trimmedEmail.toLowerCase(),
+      orderNameMatches(o.name, cleanName) &&
+      orderEmailMatches(o, trimmedEmail),
   );
 
   return match ?? null;
@@ -72,8 +76,9 @@ export async function getOrderForPortal(
   const json = await response.json();
   const order = json?.data?.order ?? null;
 
-  // Validate that the order's email matches the provided email
-  if (!order || order.email?.trim().toLowerCase() !== trimmedEmail.toLowerCase()) {
+  // Validate that the provided email matches either the order's contact
+  // email or the linked customer's email (see portalLookupMatch.ts).
+  if (!order || !orderEmailMatches(order, trimmedEmail)) {
     return null;
   }
 
