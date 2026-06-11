@@ -259,6 +259,12 @@ export async function rejectReturn(
   shop: string,
   reason: string,
   actor: ActorInfo,
+  // Mirror of processRefundAction / processReplacementAction: server-only
+  // escape hatch for API callers (e.g. ERP/Boomi) that need to reject a
+  // return after it has already moved past PENDING_REVIEW. Never sourced
+  // from the request body — set by the API route based on the current
+  // status.
+  options?: { force?: boolean },
 ): Promise<ActionResult> {
   try {
     const returnRequest = await getReturnRequest(returnId, shop);
@@ -266,7 +272,17 @@ export async function rejectReturn(
       return { success: false, message: "Return not found." };
     }
 
-    await transitionStatus(returnId, "REJECTED", actor, { reason }, shop);
+    await transitionStatus(
+      returnId,
+      "REJECTED",
+      actor,
+      {
+        reason,
+        ...(options?.force ? { forcedTransition: true } : {}),
+      },
+      shop,
+      options?.force ? { force: true } : undefined,
+    );
 
     // Decline Shopify return request if one exists
     if (returnRequest.shopifyReturnId) {

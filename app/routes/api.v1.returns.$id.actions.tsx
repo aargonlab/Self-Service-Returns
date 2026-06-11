@@ -167,10 +167,21 @@ export const action = async ({ params, request }: ActionFunctionArgs) => {
         case "approve":
           result = await approveReturn(ctx.admin, resolvedId, ctx.shop, actor);
           break;
-        case "reject":
+        case "reject": {
           if (!body.reason) return apiBadRequest("'reason' is required for reject action", undefined, ctx.shop, ctx.requestOrigin);
-          result = await rejectReturn(resolvedId, ctx.shop, body.reason, actor);
+          // Same rationale as process_refund / process_replacement: the API
+          // allows rejecting a return that already moved past PENDING_REVIEW
+          // when the ERP/operator decides. Server-side decision only — never
+          // accept a force flag from the request body.
+          const FORCE_FROM: ReadonlyArray<typeof returnRequest.status> = [
+            "APPROVED",
+            "AWAITING_SHIPMENT",
+            "IN_TRANSIT",
+          ];
+          const force = FORCE_FROM.includes(returnRequest.status);
+          result = await rejectReturn(resolvedId, ctx.shop, body.reason, actor, { force });
           break;
+        }
         case "cancel":
           result = await cancelReturn(ctx.admin, resolvedId, ctx.shop, actor);
           break;

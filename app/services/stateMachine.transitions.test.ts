@@ -99,6 +99,50 @@ test("Timeline label for standard RECEIVED → EXCHANGED is unchanged", () => {
   assert.equal(getTransitionEventName("RECEIVED", "EXCHANGED"), "Replacement order created");
 });
 
+// Same UI/API split for rejections: REJECTED is reachable from the early
+// triage states (SUBMITTED, PENDING_REVIEW) but the API uses `force=true`
+// to bypass when the operator needs to reject a return that has already
+// moved past approval.
+
+test("UI shortcut guard: APPROVED cannot transition directly to REJECTED", () => {
+  assert.equal(canTransition("APPROVED", "REJECTED"), false);
+});
+
+test("UI shortcut guard: AWAITING_SHIPMENT cannot transition directly to REJECTED", () => {
+  assert.equal(canTransition("AWAITING_SHIPMENT", "REJECTED"), false);
+});
+
+test("UI shortcut guard: IN_TRANSIT cannot transition directly to REJECTED", () => {
+  assert.equal(canTransition("IN_TRANSIT", "REJECTED"), false);
+});
+
+test("Existing happy path: PENDING_REVIEW → REJECTED is still valid", () => {
+  assert.equal(canTransition("PENDING_REVIEW", "REJECTED"), true);
+});
+
+test("Existing happy path: SUBMITTED → REJECTED is still valid", () => {
+  assert.equal(canTransition("SUBMITTED", "REJECTED"), true);
+});
+
+test("Timeline label for forced APPROVED → REJECTED marks intermediate skip", () => {
+  const label = getTransitionEventName("APPROVED", "REJECTED");
+  assert.match(label, /intermediate states skipped via API/i);
+});
+
+test("Timeline label for forced AWAITING_SHIPMENT → REJECTED marks intermediate skip", () => {
+  const label = getTransitionEventName("AWAITING_SHIPMENT", "REJECTED");
+  assert.match(label, /intermediate states skipped via API/i);
+});
+
+test("Timeline label for forced IN_TRANSIT → REJECTED marks intermediate skip", () => {
+  const label = getTransitionEventName("IN_TRANSIT", "REJECTED");
+  assert.match(label, /intermediate states skipped via API/i);
+});
+
+test("Timeline label for standard PENDING_REVIEW → REJECTED is unchanged", () => {
+  assert.equal(getTransitionEventName("PENDING_REVIEW", "REJECTED"), "Return rejected");
+});
+
 test("TRANSITIONS table contains all 12 ReturnStatus enum members", () => {
   // Compile-time + runtime guard: every enum member is keyed in the table,
   // so a future status added to the schema fails the test until handled.
