@@ -14,7 +14,7 @@ function sanitizeSearchTerm(term: string): string {
   // M-INF4: Remove special characters, boolean operators, and wildcards
   const cleaned = limited
     .replace(/[\\/*+?^${}()|[\]:'"]/g, "")
-    .replace(/[%_*?]/g, "") // Escape GraphQL/Prisma/SQL wildcards
+    .replace(/[%*?]/g, "") // Escape GraphQL/Prisma/SQL wildcards
     .split(/\s+/)
     .filter(word => !["AND", "OR", "NOT"].includes(word.toUpperCase()))
     .join(" ")
